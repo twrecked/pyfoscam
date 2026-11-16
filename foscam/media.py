@@ -164,7 +164,7 @@ class FoscamMediaLibrary:
         cutoff_date = datetime.now() - timedelta(days=self.days_cutoff)
 
         with ftp_client:
-            _, raw_records = ftp_client.list_media(mac)
+            _, raw_records = ftp_client.list_media(mac, since_date=cutoff_date.date())
 
         recordings: list[FoscamRecording] = []
         for r in raw_records:

@@ -4,7 +4,8 @@ from __future__ import annotations
 import logging
 import os
 import re
-from datetime import datetime
+from datetime import date, datetime
+import time
 from typing import Any
 
 from ftpretty import ftpretty
@@ -68,21 +69,35 @@ class FoscamFTPClient:
         self.timeout = timeout
         self._ftp: ftpretty | None = None
 
-    def connect(self) -> ftpretty:
-        """Connect to FTP server."""
+    def connect(self, retries: int = 5, retry_interval: float = 0.5) -> ftpretty:
+        """Connect to FTP server with retry for daemon startup."""
         if self._ftp is not None:
             return self._ftp
-        try:
-            self._ftp = ftpretty(
-                self.host,
-                self.username,
-                self.password,
-                port=self.port,
-                timeout=self.timeout,
-            )
-            return self._ftp
-        except Exception as err:
-            raise FoscamConnectionError(f"FTP connection to {self.host}:{self.port} failed: {err}") from err
+
+        last_err: Exception | None = None
+        for attempt in range(retries):
+            try:
+                self._ftp = ftpretty(
+                    self.host,
+                    self.username,
+                    self.password,
+                    port=self.port,
+                    timeout=self.timeout,
+                )
+                return self._ftp
+            except (ConnectionRefusedError, OSError) as err:
+                last_err = err
+                if attempt < retries - 1:
+                    LOGGER.debug("FTP connect failed (attempt %d/%d), retrying in %.1fs: %s", attempt + 1, retries, retry_interval, err)
+                    time.sleep(retry_interval)
+                else:
+                    raise FoscamConnectionError(f"FTP connection to {self.host}:{self.port} failed after {retries} attempts: {err}") from err
+            except Exception as err:
+                raise FoscamConnectionError(f"FTP connection to {self.host}:{self.port} failed: {err}") from err
+
+        if last_err:
+            raise FoscamConnectionError(f"FTP connection to {self.host}:{self.port} failed: {last_err}") from last_err
+        raise FoscamConnectionError(f"FTP connection to {self.host}:{self.port} failed")
 
     def close(self) -> None:
         """Close FTP connection."""
@@ -122,14 +137,26 @@ class FoscamFTPClient:
 
         raise FoscamConnectionError("No camera directories found under /IPCamera")
 
-    def list_media(self, mac: str | None = None) -> tuple[dict[datetime, str], list[dict[str, Any]]]:
+    def list_media(
+        self,
+        mac: str | None = None,
+        since_date: datetime | date | None = None,
+    ) -> tuple[dict[datetime, str], list[dict[str, Any]]]:
         """Scan FTP directory for snapshots and recordings.
+
+        Args:
+            mac: Optional MAC address to locate IPCamera subdirectory.
+            since_date: Optional cutoff date; folders prior to this date are skipped.
 
         Returns:
             (snapshots_dict {datetime: remote_path}, recordings_list [dict])
         """
         ftp = self.connect()
         cam_dir = self.discover_camera_dir(mac)
+
+        since_str: str | None = None
+        if since_date:
+            since_str = since_date.strftime("%Y%m%d")
 
         snapshots: dict[datetime, str] = {}
         recordings: list[dict[str, Any]] = []
@@ -138,7 +165,10 @@ class FoscamFTPClient:
         snap_root = f"{cam_dir}/snap"
         try:
             for date1 in ftp.list(snap_root):
-                d1_path = f"{snap_root}/{os.path.basename(date1)}"
+                d1_name = os.path.basename(date1)
+                if since_str and d1_name < since_str:
+                    continue
+                d1_path = f"{snap_root}/{d1_name}"
                 try:
                     for date2 in ftp.list(d1_path):
                         d2_path = f"{d1_path}/{os.path.basename(date2)}"
@@ -162,7 +192,10 @@ class FoscamFTPClient:
         record_root = f"{cam_dir}/record"
         try:
             for date1 in ftp.list(record_root):
-                d1_path = f"{record_root}/{os.path.basename(date1)}"
+                d1_name = os.path.basename(date1)
+                if since_str and d1_name < since_str:
+                    continue
+                d1_path = f"{record_root}/{d1_name}"
                 try:
                     for date2 in ftp.list(d1_path):
                         d2_path = f"{d1_path}/{os.path.basename(date2)}"

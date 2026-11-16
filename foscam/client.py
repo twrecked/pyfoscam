@@ -140,11 +140,12 @@ class FoscamCamera:
             "raw": state_dict,
         }
 
-    def start_ftp_server(self) -> None:
+    def start_ftp_server(self, settle_time: float = 1.0) -> None:
         """Ensure FTP service is active on the camera."""
         code, _ = self._raw_cam.execute_command("startFtpServer")
-        # Ignore non-zero if already started or unsupported
         LOGGER.debug("startFtpServer executed with code %s", code)
+        if settle_time > 0:
+            time.sleep(settle_time)
 
     def get_snapshot(self) -> bytes:
         """Capture a still snapshot and return raw JPEG bytes."""
