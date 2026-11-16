@@ -57,6 +57,32 @@ class FoscamRecording:
         return self._storage_dir / f"{self.clip_id}.jpg"
 
     @property
+    def content_url(self) -> str:
+        """Return string path to local video file for HA compatibility."""
+        return str(self.local_video_path)
+
+    @property
+    def thumbnail_url(self) -> str:
+        """Return string path to local thumbnail file for HA compatibility."""
+        return str(self.local_thumbnail_path)
+
+    @property
+    def content_type(self) -> str:
+        return "video/mp4"
+
+    @property
+    def thumbnail_type(self) -> str:
+        return "image/jpeg"
+
+    @property
+    def object_type(self) -> str | None:
+        return self.trigger
+
+    @property
+    def object_region(self) -> None:
+        return None
+
+    @property
     def is_downloaded(self) -> bool:
         """Check if local MP4 file exists and has size."""
         p = self.local_video_path
