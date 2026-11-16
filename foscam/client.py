@@ -3,10 +3,11 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from pathlib import Path
-from typing import Any
-from urllib.parse import unquote, urlencode
+import types
 import xml.etree.ElementTree as ET
+from pathlib import Path
+from typing import Any, Self
+from urllib.parse import unquote, urlencode
 
 import aiohttp
 
@@ -22,6 +23,7 @@ from .exceptions import (
     FoscamAuthError,
     FoscamCommandError,
     FoscamConnectionError,
+    FoscamError,
 )
 from .ftp import FoscamFTPClient
 from .media import FoscamMediaLibrary
@@ -78,10 +80,15 @@ class FoscamCamera:
             await self._session.close()
             self._session = None
 
-    async def __aenter__(self) -> FoscamCamera:
+    async def __aenter__(self) -> Self:
         return self
 
-    async def __aexit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: types.TracebackType | None,
+    ) -> None:
         await self.close()
 
     @property
@@ -179,7 +186,7 @@ class FoscamCamera:
 
                 data = await resp.read()
                 return self._parse_xml_response(data)
-        except (aiohttp.ClientError, asyncio.TimeoutError, OSError) as err:
+        except (aiohttp.ClientError, TimeoutError, OSError) as err:
             raise FoscamConnectionError(
                 f"CGI request '{cmd}' failed on {self.host}:{self.port}: {err}"
             ) from err
@@ -193,12 +200,11 @@ class FoscamCamera:
         # Optionally check ports
         try:
             p_code, port_info = await self._send_command("getPortInfo")
-            if p_code == 0 and port_info:
-                if "rtspPort" in port_info and port_info["rtspPort"]:
-                    self.rtsp_port = int(port_info["rtspPort"])
-                    self._dev_info["rtspPort"] = self.rtsp_port
-        except Exception:
-            pass
+            if p_code == 0 and port_info and port_info.get("rtspPort"):
+                self.rtsp_port = int(port_info["rtspPort"])
+                self._dev_info["rtspPort"] = self.rtsp_port
+        except FoscamError as err:
+            LOGGER.debug("Port info query skipped for %s: %s", self.host, err)
 
         return self._dev_info
 

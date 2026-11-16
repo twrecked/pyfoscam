@@ -12,6 +12,7 @@ setup(
     name='pyfoscam',
     version='0.2.0',
     packages=find_packages(exclude=['tests', 'tests.*']),
+    package_data={'foscam': ['py.typed']},
     python_requires='>=3.10',
     install_requires=[
         'aiohttp>=3.9.0',

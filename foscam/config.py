@@ -203,7 +203,7 @@ def get_camera_config(
 
     if not target_name or target_name not in cameras:
         # Show unique camera names
-        available = ", ".join(sorted(set(c.get("name", k) for k, c in cameras.items())))
+        available = ", ".join(sorted({c.get("name", k) for k, c in cameras.items()}))
         raise FoscamConfigError(f"Camera '{name or 'default'}' not found. Available: {available}")
 
     return target_name, cameras[target_name]

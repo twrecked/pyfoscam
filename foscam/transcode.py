@@ -61,7 +61,7 @@ async def convert_avi_to_mp4(
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
-            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+            _stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
             if proc.returncode == 0 and dest_mp4.is_file() and dest_mp4.stat().st_size > 0:
                 LOGGER.debug("Lossless remux succeeded for %s", dest_mp4.name)
                 return True
@@ -70,9 +70,9 @@ async def convert_avi_to_mp4(
                 proc.returncode,
                 stderr.decode(errors="ignore"),
             )
-        except asyncio.TimeoutError:
+        except TimeoutError:
             LOGGER.warning("Lossless remux timed out for %s, falling back to re-encode", source_avi.name)
-        except Exception as err:
+        except OSError as err:
             LOGGER.debug("Lossless remux error for %s: %s", source_avi.name, err)
 
     # Fallback attempt: re-encode video to H.264 / AAC
@@ -99,16 +99,16 @@ async def convert_avi_to_mp4(
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
-        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+        _stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
         if proc.returncode == 0 and dest_mp4.is_file() and dest_mp4.stat().st_size > 0:
             LOGGER.debug("Re-encode to MP4 succeeded for %s", dest_mp4.name)
             return True
         raise FoscamMediaError(
             f"ffmpeg conversion failed with code {proc.returncode}: {stderr.decode(errors='ignore')}"
         )
-    except asyncio.TimeoutError:
+    except TimeoutError:
         raise FoscamMediaError(f"ffmpeg conversion timed out after {timeout} seconds for {source_avi.name}")
-    except Exception as err:
+    except OSError as err:
         raise FoscamMediaError(f"ffmpeg conversion failed for {source_avi.name}: {err}") from err
 
 
@@ -140,7 +140,7 @@ async def get_video_duration(video_path: Path | str) -> int | None:
         stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=5)
         if proc.returncode == 0:
             val = float(stdout.decode().strip())
-            return max(1, int(round(val)))
-    except Exception:
-        pass
+            return max(1, round(val))
+    except (TimeoutError, OSError, ValueError) as err:
+        LOGGER.debug("Failed getting duration for %s: %s", video_path, err)
     return None

@@ -6,6 +6,7 @@ from pathlib import Path
 
 import click
 
+from ..exceptions import FoscamConnectionError, FoscamMediaError
 from .camera_cmd import create_client_from_context
 from .common import run_async
 
@@ -152,7 +153,7 @@ def media_sync(
                     click.echo(f"  Downloading {rec.clip_id} ({rec.created_at_pretty()})...")
                     vid_path, _ = await client.media.download_recording(rec, remux_to_mp4=not raw)
                     click.echo(f"    Saved: {vid_path}")
-                except Exception as err:
+                except (FoscamMediaError, FoscamConnectionError, OSError) as err:
                     click.echo(f"    Failed: {err}", err=True)
 
             click.echo("Sync complete.")

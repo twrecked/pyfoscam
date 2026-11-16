@@ -1,6 +1,7 @@
 """CLI camera commands for pyfoscam."""
 from __future__ import annotations
 
+import asyncio
 import logging
 from pathlib import Path
 
@@ -94,8 +95,7 @@ def snapshot_cmd(ctx: click.Context, camera: str | None, output: str) -> None:
 
         out_path = Path(output)
         out_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(out_path, "wb") as f:
-            f.write(data)
+        await asyncio.to_thread(out_path.write_bytes, data)
 
         click.echo(f"Snapshot saved to: {out_path} ({len(data)} bytes)")
 

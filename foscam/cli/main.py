@@ -72,9 +72,12 @@ def preprocess_argv(args: list[str]) -> list[str]:
     """Preprocess arguments so '--hass' without path defaults to auto-detect."""
     new_args = list(args)
     for i, arg in enumerate(new_args):
-        if arg == "--hass":
-            if i + 1 >= len(new_args) or new_args[i + 1].startswith("-") or new_args[i + 1] in KNOWN_SUBCOMMANDS:
-                new_args[i] = "--hass=__AUTO__"
+        if arg == "--hass" and (
+            i + 1 >= len(new_args)
+            or new_args[i + 1].startswith("-")
+            or new_args[i + 1] in KNOWN_SUBCOMMANDS
+        ):
+            new_args[i] = "--hass=__AUTO__"
     return new_args
 
 

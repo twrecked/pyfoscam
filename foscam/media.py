@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from .exceptions import FoscamMediaError
+from .exceptions import FoscamConnectionError, FoscamMediaError
 from .transcode import convert_avi_to_mp4, get_video_duration, is_ffmpeg_available
 
 if TYPE_CHECKING:
@@ -263,7 +263,7 @@ class FoscamMediaLibrary:
             if rec.remote_thumbnail:
                 try:
                     await ftp_client.download_file(rec.remote_thumbnail, str(target_thumbnail))
-                except Exception as err:
+                except (FoscamMediaError, FoscamConnectionError, OSError) as err:
                     LOGGER.debug("Thumbnail download failed for %s: %s", rec.clip_id, err)
 
             # 2. Download video

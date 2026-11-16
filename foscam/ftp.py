@@ -2,12 +2,14 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import date, datetime
+import ftplib
 import logging
 import os
 import re
 import time
-from typing import Any
+import types
+from datetime import date, datetime
+from typing import Any, Self
 
 from ftpretty import ftpretty
 
@@ -118,8 +120,8 @@ class FoscamFTPClient:
         if self._ftp is not None:
             try:
                 self._ftp.close()
-            except Exception:
-                pass
+            except (ftplib.Error, OSError) as err:
+                LOGGER.debug("Error closing FTP connection: %s", err)
             self._ftp = None
 
     def _discover_camera_dir_sync(self, mac: str | None = None) -> str:
@@ -180,11 +182,11 @@ class FoscamFTPClient:
                                 dt = parse_timestamp_from_filename(fname)
                                 if dt:
                                     snapshots[dt] = full_path
-                        except Exception as err:
+                        except (ftplib.Error, OSError) as err:
                             LOGGER.debug("Error listing snaps in %s: %s", d2_path, err)
-                except Exception as err:
+                except (ftplib.Error, OSError) as err:
                     LOGGER.debug("Error listing date2 in %s: %s", d1_path, err)
-        except Exception as err:
+        except (ftplib.Error, OSError) as err:
             LOGGER.debug("Error listing %s: %s", snap_root, err)
 
         # 2. Discover recordings
@@ -215,7 +217,7 @@ class FoscamFTPClient:
                                     snap_path = snapshots[matching_snaps[0]]
                                 elif snapshots:
                                     # Fallback to latest available snapshot before recording
-                                    snap_path = snapshots[sorted(snapshots.keys())[-1]]
+                                    snap_path = snapshots[max(snapshots.keys())]
 
                                 trigger = parse_trigger_from_filename(fname)
                                 base_id = os.path.splitext(fname)[0]
@@ -231,11 +233,11 @@ class FoscamFTPClient:
                                         "size": int(rec.get("size", 0)),
                                     }
                                 )
-                        except Exception as err:
+                        except (ftplib.Error, OSError) as err:
                             LOGGER.debug("Error listing recordings in %s: %s", d2_path, err)
-                except Exception as err:
+                except (ftplib.Error, OSError) as err:
                     LOGGER.debug("Error listing date2 in %s: %s", d1_path, err)
-        except Exception as err:
+        except (ftplib.Error, OSError) as err:
             LOGGER.debug("Error listing %s: %s", record_root, err)
 
         return snapshots, recordings
@@ -280,9 +282,14 @@ class FoscamFTPClient:
         async with self._lock:
             await asyncio.to_thread(self._download_file_sync, remote_path, local_path)
 
-    async def __aenter__(self) -> FoscamFTPClient:
+    async def __aenter__(self) -> Self:
         await self.connect()
         return self
 
-    async def __aexit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: types.TracebackType | None,
+    ) -> None:
         await self.close()
