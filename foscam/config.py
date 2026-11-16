@@ -11,7 +11,7 @@ import platformdirs
 from .const import DEFAULT_PORT, DEFAULT_RTSP_PORT
 from .exceptions import FoscamConfigError
 
-APP_NAME = "foscam"
+APP_NAME = "pyfoscam"
 
 
 def get_config_dir() -> Path:
@@ -61,7 +61,7 @@ def get_camera_config(name: str | None = None, config_path: Path | str | None = 
     cameras = conf.get("cameras", {})
 
     if not cameras:
-        raise FoscamConfigError("No cameras configured. Use 'foscam config add' first.")
+        raise FoscamConfigError("No cameras configured. Use 'pyfoscam config add' first.")
 
     target_name = name
     if not target_name:

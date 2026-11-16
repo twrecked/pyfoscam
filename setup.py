@@ -43,6 +43,7 @@ setup(
     ],
     entry_points={
         'console_scripts': [
+            'pyfoscam = foscam.cli.main:cli',
             'foscam = foscam.cli.main:cli',
         ],
     },

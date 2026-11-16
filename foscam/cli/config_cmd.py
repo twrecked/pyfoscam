@@ -28,7 +28,7 @@ def config_list(ctx: click.Context) -> None:
     default_cam = conf.get("default")
 
     if not cameras:
-        click.echo("No cameras configured yet. Use 'foscam config add' to add one.")
+        click.echo("No cameras configured yet. Use 'pyfoscam config add' to add one.")
         return
 
     click.echo(f"Config file: {ctx.obj.get('config_path') or get_default_config_path()}")
