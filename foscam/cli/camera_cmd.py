@@ -15,14 +15,20 @@ LOGGER = logging.getLogger(__package__)
 
 def create_client_from_context(ctx: click.Context, name: str | None) -> tuple[str, FoscamCamera]:
     """Helper to instantiate FoscamCamera from CLI context."""
-    cam_name, cfg = get_camera_config(name, ctx.obj.get("config_path"))
+    cam_name, cfg = get_camera_config(
+        name,
+        config_path=ctx.obj.get("config_path"),
+        hass_path=ctx.obj.get("hass_dir"),
+    )
     verbose = ctx.obj.get("verbose", False)
+    storage_dir = cfg.get("storage_dir")
     cam = FoscamCamera(
         host=cfg["host"],
         username=cfg["username"],
         password=cfg["password"],
         port=cfg.get("port", 88),
         rtsp_port=cfg.get("rtsp_port", 554),
+        storage_dir=storage_dir,
         verbose=verbose,
     )
     return cam_name, cam

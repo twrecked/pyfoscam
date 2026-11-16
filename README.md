@@ -29,4 +29,11 @@ pyfoscam media list living_room --days 7
 
 # Download recording
 pyfoscam media download living_room MD20210522_120400 -o clip.mp4
+
+# Using Home Assistant configuration (--hass)
+# Auto-detects HA config entries in /config, ~/.homeassistant, or sites:
+pyfoscam --hass status
+pyfoscam --hass media list
+# Or specify HA config path directly:
+pyfoscam --hass /home/user/homeassistant media list
 ```

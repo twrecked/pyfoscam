@@ -22,11 +22,13 @@ from .media_cmd import media_group
 @click.group()
 @click.option("-v", "--verbose", count=True, help="Increase output verbosity")
 @click.option("-c", "--config", "config_path", help="Path to custom cameras.json config")
+@click.option("--hass", "hass_dir", is_flag=False, flag_value="/config", default=None, help="Use Home Assistant configuration and camera entries (defaults to /config, or specify path)")
 @click.pass_context
-def cli(ctx: click.Context, verbose: int, config_path: str | None) -> None:
+def cli(ctx: click.Context, verbose: int, config_path: str | None, hass_dir: str | None) -> None:
     """pyfoscam: Manage Foscam IP cameras and recording library."""
     ctx.ensure_object(dict)
     ctx.obj["config_path"] = config_path
+    ctx.obj["hass_dir"] = hass_dir
     ctx.obj["verbose"] = verbose > 0
 
     log_level = logging.WARNING
@@ -53,5 +55,33 @@ cli.add_command(preset_cmd)
 cli.add_command(motion_cmd)
 
 
+KNOWN_SUBCOMMANDS = {
+    "config",
+    "media",
+    "status",
+    "info",
+    "snapshot",
+    "stream",
+    "ptz",
+    "preset",
+    "motion",
+}
+
+
+def preprocess_argv(args: list[str]) -> list[str]:
+    """Preprocess arguments so '--hass' without path defaults to auto-detect."""
+    new_args = list(args)
+    for i, arg in enumerate(new_args):
+        if arg == "--hass":
+            if i + 1 >= len(new_args) or new_args[i + 1].startswith("-") or new_args[i + 1] in KNOWN_SUBCOMMANDS:
+                new_args[i] = "--hass=__AUTO__"
+    return new_args
+
+
+def main() -> None:
+    args = preprocess_argv(sys.argv[1:])
+    cli.main(args=args)
+
+
 if __name__ == "__main__":
-    cli()
+    main()
