@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import logging
 import os
-import shutil
 import tempfile
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -102,12 +101,16 @@ class FoscamRecording:
 
     @property
     def duration(self) -> int:
-        """Duration in seconds (probed via ffprobe if available)."""
+        """Duration in seconds (defaults to cached probed duration or 1)."""
+        return self._duration if self._duration is not None else 1
+
+    async def async_get_duration(self) -> int:
+        """Probe video duration asynchronously if not already cached."""
         if self._duration is None:
             if self.is_downloaded:
-                self._duration = get_video_duration(self.local_video_path)
+                self._duration = await get_video_duration(self.local_video_path)
             elif self.is_raw_downloaded:
-                self._duration = get_video_duration(self.local_raw_path)
+                self._duration = await get_video_duration(self.local_raw_path)
         return self._duration if self._duration is not None else 1
 
     def created_at_pretty(self, date_format: str = "%m-%d %H:%M:%S") -> str:
@@ -127,7 +130,9 @@ class FoscamRecording:
             "duration": self.duration,
             "is_downloaded": self.is_downloaded,
             "local_video_path": str(self.local_video_path) if self.is_downloaded else None,
-            "local_thumbnail_path": str(self.local_thumbnail_path) if self.is_thumbnail_downloaded else None,
+            "local_thumbnail_path": str(self.local_thumbnail_path)
+            if self.is_thumbnail_downloaded
+            else None,
         }
 
     def __repr__(self) -> str:
@@ -135,7 +140,7 @@ class FoscamRecording:
 
 
 class FoscamMediaLibrary:
-    """Manages recordings and media access for a Foscam camera."""
+    """Manages recordings and media access for a Foscam camera asynchronously."""
 
     def __init__(
         self,
@@ -181,16 +186,15 @@ class FoscamMediaLibrary:
                 return r
         return None
 
-    def refresh(self, mac: str | None = None) -> list[FoscamRecording]:
+    async def refresh(self, mac: str | None = None) -> list[FoscamRecording]:
         """Scan camera FTP for recordings and update internal list."""
-        # Ensure FTP service is running on camera
-        self.camera.start_ftp_server()
+        await self.camera.start_ftp_server()
 
         ftp_client = self.camera.get_ftp_client()
         cutoff_date = datetime.now() - timedelta(days=self.days_cutoff)
 
-        with ftp_client:
-            _, raw_records = ftp_client.list_media(mac, since_date=cutoff_date.date())
+        async with ftp_client:
+            _, raw_records = await ftp_client.list_media(mac, since_date=cutoff_date.date())
 
         recordings: list[FoscamRecording] = []
         for r in raw_records:
@@ -217,7 +221,7 @@ class FoscamMediaLibrary:
         self._last_refresh = datetime.now()
         return self._recordings
 
-    def download_recording(
+    async def download_recording(
         self,
         recording_or_clip_id: FoscamRecording | str,
         dest_video: Path | str | None = None,
@@ -225,7 +229,7 @@ class FoscamMediaLibrary:
         remux_to_mp4: bool = True,
         force: bool = False,
     ) -> tuple[Path, Path | None]:
-        """Download a recording and optional thumbnail.
+        """Download a recording and optional thumbnail asynchronously.
 
         Returns (video_path, thumbnail_path).
         """
@@ -238,27 +242,34 @@ class FoscamMediaLibrary:
 
         self.storage_dir.mkdir(parents=True, exist_ok=True)
 
-        target_video = Path(dest_video) if dest_video else (rec.local_video_path if remux_to_mp4 else rec.local_raw_path)
-        target_thumbnail = Path(dest_thumbnail) if dest_thumbnail else rec.local_thumbnail_path
+        target_video = (
+            Path(dest_video)
+            if dest_video
+            else (rec.local_video_path if remux_to_mp4 else rec.local_raw_path)
+        )
+        target_thumbnail = (
+            Path(dest_thumbnail) if dest_thumbnail else rec.local_thumbnail_path
+        )
 
         # If already downloaded and not forcing
         if not force and target_video.is_file() and target_video.stat().st_size > 0:
             return target_video, (target_thumbnail if target_thumbnail.is_file() else None)
 
-        self.camera.start_ftp_server()
+        await self.camera.start_ftp_server()
         ftp_client = self.camera.get_ftp_client()
 
-        with ftp_client:
+        async with ftp_client:
             # 1. Download thumbnail if available
             if rec.remote_thumbnail:
                 try:
-                    ftp_client.download_file(rec.remote_thumbnail, str(target_thumbnail))
+                    await ftp_client.download_file(rec.remote_thumbnail, str(target_thumbnail))
                 except Exception as err:
                     LOGGER.debug("Thumbnail download failed for %s: %s", rec.clip_id, err)
 
             # 2. Download video
             if not remux_to_mp4 or not is_ffmpeg_available():
-                ftp_client.download_file(rec.remote_video, str(target_video))
+                await ftp_client.download_file(rec.remote_video, str(target_video))
+                rec._duration = await get_video_duration(target_video)
                 return target_video, (target_thumbnail if target_thumbnail.is_file() else None)
 
             # Download AVI to temporary file and remux
@@ -266,8 +277,9 @@ class FoscamMediaLibrary:
                 tmp_avi_path = tmp_avi.name
 
             try:
-                ftp_client.download_file(rec.remote_video, tmp_avi_path)
-                convert_avi_to_mp4(tmp_avi_path, target_video)
+                await ftp_client.download_file(rec.remote_video, tmp_avi_path)
+                await convert_avi_to_mp4(tmp_avi_path, target_video)
+                rec._duration = await get_video_duration(target_video)
             except Exception as err:
                 self._bad_recordings.add(rec.clip_id)
                 if os.path.exists(target_video):

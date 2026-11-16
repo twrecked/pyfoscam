@@ -7,6 +7,7 @@ from pathlib import Path
 import click
 
 from .camera_cmd import create_client_from_context
+from .common import run_async
 
 LOGGER = logging.getLogger(__package__)
 
@@ -35,29 +36,39 @@ def media_group() -> None:
 @click.pass_context
 def media_list(ctx: click.Context, camera: str | None, days: int, limit: int) -> None:
     """List recordings discovered on camera storage."""
-    cam_name, client = create_client_from_context(ctx, camera)
-    client.media.days_cutoff = days
 
-    click.echo(f"Scanning media on '{cam_name}' (last {days} days)...")
-    recordings = client.media.refresh()
+    async def _run() -> None:
+        cam_name, client = create_client_from_context(ctx, camera)
+        async with client:
+            client.media.days_cutoff = days
+            click.echo(f"Scanning media on '{cam_name}' (last {days} days)...")
+            recordings = await client.media.refresh()
 
-    if not recordings:
-        click.echo("No recordings found.")
-        return
+            if not recordings:
+                click.echo("No recordings found.")
+                return
 
-    click.echo(
-        f"Found {len(recordings)} recordings (Today: {client.media.captured_today}). "
-        f"Showing newest {min(limit, len(recordings))}:\n"
-    )
-    click.echo(f"{'Clip ID':<26} {'Date/Time':<18} {'Trigger':<10} {'Size':<10} {'Downloaded':<10}")
-    click.echo("-" * 78)
+            click.echo(
+                f"Found {len(recordings)} recordings (Today: {client.media.captured_today}). "
+                f"Showing newest {min(limit, len(recordings))}:\n"
+            )
+            click.echo(
+                f"{'Clip ID':<26} {'Date/Time':<18} {'Trigger':<10} {'Size':<10} {'Downloaded':<10}"
+            )
+            click.echo("-" * 78)
 
-    for rec in recordings[:limit]:
-        down_status = "YES (MP4)" if rec.is_downloaded else ("YES (AVI)" if rec.is_raw_downloaded else "No")
-        click.echo(
-            f"{rec.clip_id:<26} {rec.created_at_pretty():<18} {rec.trigger:<10} "
-            f"{format_bytes(rec.remote_size):<10} {down_status:<10}"
-        )
+            for rec in recordings[:limit]:
+                down_status = (
+                    "YES (MP4)"
+                    if rec.is_downloaded
+                    else ("YES (AVI)" if rec.is_raw_downloaded else "No")
+                )
+                click.echo(
+                    f"{rec.clip_id:<26} {rec.created_at_pretty():<18} {rec.trigger:<10} "
+                    f"{format_bytes(rec.remote_size):<10} {down_status:<10}"
+                )
+
+    run_async(_run())
 
 
 @media_group.command("download")
@@ -76,27 +87,34 @@ def media_download(
     force: bool,
 ) -> None:
     """Download a specific recording clip by its Clip ID."""
-    cam_name, client = create_client_from_context(ctx, camera)
-    click.echo(f"Refreshing media catalog on '{cam_name}'...")
-    client.media.refresh()
 
-    rec = client.media.get_recording(clip_id)
-    if not rec:
-        raise click.ClickException(f"Clip '{clip_id}' not found on camera '{cam_name}'.")
+    async def _run() -> None:
+        cam_name, client = create_client_from_context(ctx, camera)
+        async with client:
+            click.echo(f"Refreshing media catalog on '{cam_name}'...")
+            await client.media.refresh()
 
-    click.echo(f"Downloading clip {clip_id} ({format_bytes(rec.remote_size)})...")
-    dest_path = Path(output) if output else None
+            rec = client.media.get_recording(clip_id)
+            if not rec:
+                raise click.ClickException(
+                    f"Clip '{clip_id}' not found on camera '{cam_name}'."
+                )
 
-    vid_path, snap_path = client.media.download_recording(
-        rec,
-        dest_video=dest_path,
-        remux_to_mp4=not raw,
-        force=force,
-    )
+            click.echo(f"Downloading clip {clip_id} ({format_bytes(rec.remote_size)})...")
+            dest_path = Path(output) if output else None
 
-    click.echo(f"Video saved to: {vid_path}")
-    if snap_path and snap_path.is_file():
-        click.echo(f"Thumbnail saved to: {snap_path}")
+            vid_path, snap_path = await client.media.download_recording(
+                rec,
+                dest_video=dest_path,
+                remux_to_mp4=not raw,
+                force=force,
+            )
+
+            click.echo(f"Video saved to: {vid_path}")
+            if snap_path and snap_path.is_file():
+                click.echo(f"Thumbnail saved to: {snap_path}")
+
+    run_async(_run())
 
 
 @media_group.command("sync")
@@ -113,24 +131,30 @@ def media_sync(
     raw: bool,
 ) -> None:
     """Download the most recent undownloaded recordings."""
-    cam_name, client = create_client_from_context(ctx, camera)
-    client.media.days_cutoff = days
 
-    click.echo(f"Refreshing media catalog on '{cam_name}'...")
-    recordings = client.media.refresh()
+    async def _run() -> None:
+        cam_name, client = create_client_from_context(ctx, camera)
+        async with client:
+            client.media.days_cutoff = days
+            click.echo(f"Refreshing media catalog on '{cam_name}'...")
+            recordings = await client.media.refresh()
 
-    needed = [r for r in recordings if not r.is_downloaded and not r.is_raw_downloaded][:limit]
-    if not needed:
-        click.echo("All recordings within window are already downloaded.")
-        return
+            needed = [
+                r for r in recordings if not r.is_downloaded and not r.is_raw_downloaded
+            ][:limit]
+            if not needed:
+                click.echo("All recordings within window are already downloaded.")
+                return
 
-    click.echo(f"Downloading {len(needed)} new recordings...")
-    for rec in needed:
-        try:
-            click.echo(f"  Downloading {rec.clip_id} ({rec.created_at_pretty()})...")
-            vid_path, _ = client.media.download_recording(rec, remux_to_mp4=not raw)
-            click.echo(f"    Saved: {vid_path}")
-        except Exception as err:
-            click.echo(f"    Failed: {err}", err=True)
+            click.echo(f"Downloading {len(needed)} new recordings...")
+            for rec in needed:
+                try:
+                    click.echo(f"  Downloading {rec.clip_id} ({rec.created_at_pretty()})...")
+                    vid_path, _ = await client.media.download_recording(rec, remux_to_mp4=not raw)
+                    click.echo(f"    Saved: {vid_path}")
+                except Exception as err:
+                    click.echo(f"    Failed: {err}", err=True)
 
-    click.echo("Sync complete.")
+            click.echo("Sync complete.")
+
+    run_async(_run())

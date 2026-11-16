@@ -1,10 +1,11 @@
 """FTP client for Foscam local storage access."""
 from __future__ import annotations
 
+import asyncio
+from datetime import date, datetime
 import logging
 import os
 import re
-from datetime import date, datetime
 import time
 from typing import Any
 
@@ -52,7 +53,7 @@ def parse_trigger_from_filename(filename: str) -> str:
 
 
 class FoscamFTPClient:
-    """Interacts with Foscam camera FTP server."""
+    """Interacts with Foscam camera FTP server asynchronously."""
 
     def __init__(
         self,
@@ -68,9 +69,10 @@ class FoscamFTPClient:
         self.port = port
         self.timeout = timeout
         self._ftp: ftpretty | None = None
+        self._lock = asyncio.Lock()
 
-    def connect(self, retries: int = 5, retry_interval: float = 0.5) -> ftpretty:
-        """Connect to FTP server with retry for daemon startup."""
+    def _connect_sync(self, retries: int = 5, retry_interval: float = 0.5) -> ftpretty:
+        """Connect to FTP server with retry for daemon startup (synchronous)."""
         if self._ftp is not None:
             return self._ftp
 
@@ -88,19 +90,31 @@ class FoscamFTPClient:
             except (ConnectionRefusedError, OSError) as err:
                 last_err = err
                 if attempt < retries - 1:
-                    LOGGER.debug("FTP connect failed (attempt %d/%d), retrying in %.1fs: %s", attempt + 1, retries, retry_interval, err)
+                    LOGGER.debug(
+                        "FTP connect failed (attempt %d/%d), retrying in %.1fs: %s",
+                        attempt + 1,
+                        retries,
+                        retry_interval,
+                        err,
+                    )
                     time.sleep(retry_interval)
                 else:
-                    raise FoscamConnectionError(f"FTP connection to {self.host}:{self.port} failed after {retries} attempts: {err}") from err
+                    raise FoscamConnectionError(
+                        f"FTP connection to {self.host}:{self.port} failed after {retries} attempts: {err}"
+                    ) from err
             except Exception as err:
-                raise FoscamConnectionError(f"FTP connection to {self.host}:{self.port} failed: {err}") from err
+                raise FoscamConnectionError(
+                    f"FTP connection to {self.host}:{self.port} failed: {err}"
+                ) from err
 
         if last_err:
-            raise FoscamConnectionError(f"FTP connection to {self.host}:{self.port} failed: {last_err}") from last_err
+            raise FoscamConnectionError(
+                f"FTP connection to {self.host}:{self.port} failed: {last_err}"
+            ) from last_err
         raise FoscamConnectionError(f"FTP connection to {self.host}:{self.port} failed")
 
-    def close(self) -> None:
-        """Close FTP connection."""
+    def _close_sync(self) -> None:
+        """Close FTP connection (synchronous)."""
         if self._ftp is not None:
             try:
                 self._ftp.close()
@@ -108,16 +122,9 @@ class FoscamFTPClient:
                 pass
             self._ftp = None
 
-    def __enter__(self) -> FoscamFTPClient:
-        self.connect()
-        return self
-
-    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
-        self.close()
-
-    def discover_camera_dir(self, mac: str | None = None) -> str:
-        """Find the root IPCamera folder for this camera MAC or the first camera found."""
-        ftp = self.connect()
+    def _discover_camera_dir_sync(self, mac: str | None = None) -> str:
+        """Find the root IPCamera folder for this camera MAC (synchronous)."""
+        ftp = self._connect_sync()
         try:
             dirs = ftp.list("/IPCamera")
         except Exception as err:
@@ -137,22 +144,14 @@ class FoscamFTPClient:
 
         raise FoscamConnectionError("No camera directories found under /IPCamera")
 
-    def list_media(
+    def _list_media_sync(
         self,
         mac: str | None = None,
         since_date: datetime | date | None = None,
     ) -> tuple[dict[datetime, str], list[dict[str, Any]]]:
-        """Scan FTP directory for snapshots and recordings.
-
-        Args:
-            mac: Optional MAC address to locate IPCamera subdirectory.
-            since_date: Optional cutoff date; folders prior to this date are skipped.
-
-        Returns:
-            (snapshots_dict {datetime: remote_path}, recordings_list [dict])
-        """
-        ftp = self.connect()
-        cam_dir = self.discover_camera_dir(mac)
+        """Scan FTP directory for snapshots and recordings (synchronous)."""
+        ftp = self._connect_sync()
+        cam_dir = self._discover_camera_dir_sync(mac)
 
         since_str: str | None = None
         if since_date:
@@ -221,15 +220,17 @@ class FoscamFTPClient:
                                 trigger = parse_trigger_from_filename(fname)
                                 base_id = os.path.splitext(fname)[0]
 
-                                recordings.append({
-                                    "clip_id": base_id,
-                                    "filename": fname,
-                                    "date": dt,
-                                    "trigger": trigger,
-                                    "remote_video": full_path,
-                                    "remote_snapshot": snap_path,
-                                    "size": int(rec.get("size", 0)),
-                                })
+                                recordings.append(
+                                    {
+                                        "clip_id": base_id,
+                                        "filename": fname,
+                                        "date": dt,
+                                        "trigger": trigger,
+                                        "remote_video": full_path,
+                                        "remote_snapshot": snap_path,
+                                        "size": int(rec.get("size", 0)),
+                                    }
+                                )
                         except Exception as err:
                             LOGGER.debug("Error listing recordings in %s: %s", d2_path, err)
                 except Exception as err:
@@ -239,11 +240,49 @@ class FoscamFTPClient:
 
         return snapshots, recordings
 
-    def download_file(self, remote_path: str, local_path: str) -> None:
-        """Download remote file via FTP."""
-        ftp = self.connect()
+    def _download_file_sync(self, remote_path: str, local_path: str) -> None:
+        """Download remote file via FTP (synchronous)."""
+        ftp = self._connect_sync()
         os.makedirs(os.path.dirname(os.path.abspath(local_path)), exist_ok=True)
         try:
             ftp.get(remote_path, local_path)
         except Exception as err:
-            raise FoscamConnectionError(f"FTP get {remote_path} -> {local_path} failed: {err}") from err
+            raise FoscamConnectionError(
+                f"FTP get {remote_path} -> {local_path} failed: {err}"
+            ) from err
+
+    async def connect(self, retries: int = 5, retry_interval: float = 0.5) -> None:
+        """Connect to FTP server asynchronously."""
+        async with self._lock:
+            await asyncio.to_thread(self._connect_sync, retries, retry_interval)
+
+    async def close(self) -> None:
+        """Close FTP connection asynchronously."""
+        async with self._lock:
+            await asyncio.to_thread(self._close_sync)
+
+    async def discover_camera_dir(self, mac: str | None = None) -> str:
+        """Find root camera directory asynchronously."""
+        async with self._lock:
+            return await asyncio.to_thread(self._discover_camera_dir_sync, mac)
+
+    async def list_media(
+        self,
+        mac: str | None = None,
+        since_date: datetime | date | None = None,
+    ) -> tuple[dict[datetime, str], list[dict[str, Any]]]:
+        """Scan FTP directory for snapshots and recordings asynchronously."""
+        async with self._lock:
+            return await asyncio.to_thread(self._list_media_sync, mac, since_date)
+
+    async def download_file(self, remote_path: str, local_path: str) -> None:
+        """Download remote file via FTP asynchronously."""
+        async with self._lock:
+            await asyncio.to_thread(self._download_file_sync, remote_path, local_path)
+
+    async def __aenter__(self) -> FoscamFTPClient:
+        await self.connect()
+        return self
+
+    async def __aexit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
+        await self.close()

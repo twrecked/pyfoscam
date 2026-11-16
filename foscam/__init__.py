@@ -14,7 +14,7 @@ from .ftp import FoscamFTPClient
 from .media import FoscamMediaLibrary, FoscamRecording
 from .transcode import convert_avi_to_mp4, is_ffmpeg_available
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 __all__ = [
     "FoscamCamera",
     "FoscamMediaLibrary",

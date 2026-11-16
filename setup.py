@@ -10,17 +10,17 @@ def readme():
 
 setup(
     name='pyfoscam',
-    version='0.1.0',
+    version='0.2.0',
     packages=find_packages(exclude=['tests', 'tests.*']),
     python_requires='>=3.10',
     install_requires=[
-        'libpyfoscam>=1.2.0',
+        'aiohttp>=3.9.0',
         'ftpretty>=0.4.0',
         'click>=8.0.0',
         'platformdirs>=3.0.0',
     ],
     extras_require={
-        'test': ['pytest>=7.0'],
+        'test': ['pytest>=7.0', 'pytest-asyncio>=0.20', 'aioresponses>=0.7.0'],
     },
     author='Steve Herrell',
     author_email='steve.herrell@gmail.com',

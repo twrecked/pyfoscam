@@ -15,14 +15,14 @@ PTZ_BOTTOM_LEFT = "bottom_left"
 PTZ_BOTTOM_RIGHT = "bottom_right"
 
 PTZ_COMMANDS = {
-    PTZ_UP: "ptz_move_up",
-    PTZ_DOWN: "ptz_move_down",
-    PTZ_LEFT: "ptz_move_left",
-    PTZ_RIGHT: "ptz_move_right",
-    PTZ_TOP_LEFT: "ptz_move_top_left",
-    PTZ_TOP_RIGHT: "ptz_move_top_right",
-    PTZ_BOTTOM_LEFT: "ptz_move_bottom_left",
-    PTZ_BOTTOM_RIGHT: "ptz_move_bottom_right",
+    PTZ_UP: "ptzMoveUp",
+    PTZ_DOWN: "ptzMoveDown",
+    PTZ_LEFT: "ptzMoveLeft",
+    PTZ_RIGHT: "ptzMoveRight",
+    PTZ_TOP_LEFT: "ptzMoveTopLeft",
+    PTZ_TOP_RIGHT: "ptzMoveTopRight",
+    PTZ_BOTTOM_LEFT: "ptzMoveBottomLeft",
+    PTZ_BOTTOM_RIGHT: "ptzMoveBottomRight",
 }
 
 DEFAULT_PTZ_TRAVEL_TIME = 0.125
