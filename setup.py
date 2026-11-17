@@ -10,7 +10,7 @@ def readme():
 
 setup(
     name='pyfoscam',
-    version='0.2.0',
+    version='0.1.0-alpha.1',
     packages=find_packages(exclude=['tests', 'tests.*']),
     package_data={'foscam': ['py.typed']},
     python_requires='>=3.10',

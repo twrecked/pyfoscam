@@ -1,0 +1,10 @@
+Unreleased
+
+0.1.0-alpha.1
+  - Initial alpha release of modernized pyfoscam library and CLI
+  - Native asyncio-first core using direct aiohttp CGI communication
+  - Encapsulated FTP engine with asyncio.to_thread offloading
+  - Persistent local disk caching for historical recordings
+  - Fast lossless AVI-to-MP4 remuxing and duration probing with asyncio subprocesses
+  - Local media storage retention pruning
+  - CLI commands: config, info, status, snapshot, stream, ptz, preset, motion, media (list, download, sync, prune, clear-cache)
