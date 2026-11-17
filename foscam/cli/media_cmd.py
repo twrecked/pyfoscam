@@ -34,16 +34,22 @@ def media_group() -> None:
 @click.argument("camera", required=False)
 @click.option("--days", default=15, show_default=True, type=int, help="Days of history to search")
 @click.option("--limit", default=25, show_default=True, type=int, help="Maximum recordings to display")
+@click.option("--refresh", is_flag=True, help="Bypass disk cache and perform a full FTP rescan")
 @click.pass_context
-def media_list(ctx: click.Context, camera: str | None, days: int, limit: int) -> None:
+def media_list(
+    ctx: click.Context, camera: str | None, days: int, limit: int, refresh: bool
+) -> None:
     """List recordings discovered on camera storage."""
 
     async def _run() -> None:
         cam_name, client = create_client_from_context(ctx, camera)
         async with client:
             client.media.days_cutoff = days
-            click.echo(f"Scanning media on '{cam_name}' (last {days} days)...")
-            recordings = await client.media.refresh()
+            if refresh:
+                click.echo(f"Performing full FTP rescan on '{cam_name}' (bypassing cache)...")
+            else:
+                click.echo(f"Scanning media on '{cam_name}' (last {days} days)...")
+            recordings = await client.media.refresh(force=refresh)
 
             if not recordings:
                 click.echo("No recordings found.")
@@ -72,12 +78,28 @@ def media_list(ctx: click.Context, camera: str | None, days: int, limit: int) ->
     run_async(_run())
 
 
+@media_group.command("clear-cache")
+@click.argument("camera", required=False)
+@click.pass_context
+def media_clear_cache(ctx: click.Context, camera: str | None) -> None:
+    """Delete persistent media cache file for camera."""
+
+    async def _run() -> None:
+        cam_name, client = create_client_from_context(ctx, camera)
+        cache_file = client.media.cache_path
+        await client.media.clear_cache()
+        click.echo(f"Cache cleared for '{cam_name}' ({cache_file}).")
+
+    run_async(_run())
+
+
 @media_group.command("download")
 @click.argument("clip_id")
 @click.argument("camera", required=False)
 @click.option("-o", "--output", help="Destination file path for video")
 @click.option("--raw", is_flag=True, help="Download raw AVI without converting to MP4")
 @click.option("--force", is_flag=True, help="Re-download even if already present locally")
+@click.option("--refresh", is_flag=True, help="Bypass cache when refreshing media catalog")
 @click.pass_context
 def media_download(
     ctx: click.Context,
@@ -86,6 +108,7 @@ def media_download(
     output: str | None,
     raw: bool,
     force: bool,
+    refresh: bool,
 ) -> None:
     """Download a specific recording clip by its Clip ID."""
 
@@ -93,7 +116,7 @@ def media_download(
         cam_name, client = create_client_from_context(ctx, camera)
         async with client:
             click.echo(f"Refreshing media catalog on '{cam_name}'...")
-            await client.media.refresh()
+            await client.media.refresh(force=refresh)
 
             rec = client.media.get_recording(clip_id)
             if not rec:
@@ -123,6 +146,7 @@ def media_download(
 @click.option("--days", default=1, show_default=True, type=int, help="Days of recordings to sync")
 @click.option("--limit", default=5, show_default=True, type=int, help="Max new recordings to download")
 @click.option("--raw", is_flag=True, help="Skip MP4 remuxing")
+@click.option("--refresh", is_flag=True, help="Bypass cache when refreshing media catalog")
 @click.pass_context
 def media_sync(
     ctx: click.Context,
@@ -130,6 +154,7 @@ def media_sync(
     days: int,
     limit: int,
     raw: bool,
+    refresh: bool,
 ) -> None:
     """Download the most recent undownloaded recordings."""
 
@@ -138,7 +163,7 @@ def media_sync(
         async with client:
             client.media.days_cutoff = days
             click.echo(f"Refreshing media catalog on '{cam_name}'...")
-            recordings = await client.media.refresh()
+            recordings = await client.media.refresh(force=refresh)
 
             needed = [
                 r for r in recordings if not r.is_downloaded and not r.is_raw_downloaded

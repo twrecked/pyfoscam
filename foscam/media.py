@@ -1,8 +1,11 @@
 """Media objects and library management for Foscam recordings."""
 from __future__ import annotations
 
+import asyncio
+import json
 import logging
 import os
+import re
 import tempfile
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -157,6 +160,70 @@ class FoscamMediaLibrary:
         self._last_refresh: datetime | None = None
 
     @property
+    def cache_path(self) -> Path:
+        """Return camera-specific cache file path."""
+        safe_id = re.sub(r"[^0-9a-zA-Z]+", "_", self.camera.host)
+        return self.storage_dir / f".cache_{safe_id}.json"
+
+    def _load_cache_sync(self, cutoff_date: datetime) -> dict[str, list[dict[str, Any]]]:
+        """Load and prune historical cached records from disk (synchronous)."""
+        cache_file = self.cache_path
+        if not cache_file.is_file():
+            return {}
+
+        try:
+            with open(cache_file, encoding="utf-8") as f:
+                data = json.load(f)
+            days: dict[str, list[dict[str, Any]]] = data.get("days", {})
+
+            # Prune dates older than cutoff_date
+            cutoff_day = cutoff_date.strftime("%Y%m%d")
+            pruned_days = {
+                day: records for day, records in days.items() if day >= cutoff_day
+            }
+            return pruned_days
+        except (json.JSONDecodeError, OSError) as err:
+            LOGGER.debug("Could not read media cache %s: %s", cache_file, err)
+            return {}
+
+    def _save_cache_sync(self, days_data: dict[str, list[dict[str, Any]]]) -> None:
+        """Atomically save cached records to disk (synchronous)."""
+        self.storage_dir.mkdir(parents=True, exist_ok=True)
+        cache_file = self.cache_path
+        temp_file = self.storage_dir / f"{cache_file.name}.tmp"
+
+        payload = {
+            "version": 1,
+            "camera": self.camera.host,
+            "last_updated": datetime.now().isoformat(),
+            "days": days_data,
+        }
+        try:
+            with open(temp_file, "w", encoding="utf-8") as f:
+                json.dump(payload, f, indent=2)
+            os.replace(temp_file, cache_file)
+        except OSError as err:
+            LOGGER.warning("Failed writing media cache to %s: %s", cache_file, err)
+            if temp_file.is_file():
+                try:
+                    os.unlink(temp_file)
+                except OSError:
+                    pass
+
+    async def clear_cache(self) -> None:
+        """Clear cache file on disk and reset in-memory recordings."""
+        def _clear() -> None:
+            if self.cache_path.is_file():
+                try:
+                    os.unlink(self.cache_path)
+                except OSError as err:
+                    LOGGER.debug("Failed deleting cache %s: %s", self.cache_path, err)
+
+        await asyncio.to_thread(_clear)
+        self._recordings = []
+        self._last_refresh = None
+
+    @property
     def recordings(self) -> list[FoscamRecording]:
         """List of all discovered recordings, newest first."""
         return self._recordings
@@ -186,36 +253,88 @@ class FoscamMediaLibrary:
                 return r
         return None
 
-    async def refresh(self, mac: str | None = None) -> list[FoscamRecording]:
-        """Scan camera FTP for recordings and update internal list."""
-        await self.camera.start_ftp_server()
+    async def refresh(
+        self, mac: str | None = None, force: bool = False
+    ) -> list[FoscamRecording]:
+        """Scan camera FTP for recordings with historical date caching."""
+        self.storage_dir.mkdir(parents=True, exist_ok=True)
+        now = datetime.now()
+        today_str = now.strftime("%Y%m%d")
+        cutoff_date = now - timedelta(days=self.days_cutoff)
 
+        if force:
+            cached_days: dict[str, list[dict[str, Any]]] = {}
+            skip_dates: set[str] = set()
+        else:
+            cached_days = await asyncio.to_thread(self._load_cache_sync, cutoff_date)
+            # Only skip dates strictly prior to today that are already cached
+            skip_dates = set(cached_days.keys()) - {today_str}
+
+        await self.camera.start_ftp_server()
         ftp_client = self.camera.get_ftp_client()
-        cutoff_date = datetime.now() - timedelta(days=self.days_cutoff)
 
         async with ftp_client:
-            _, raw_records = await ftp_client.list_media(mac, since_date=cutoff_date.date())
-
-        recordings: list[FoscamRecording] = []
-        for r in raw_records:
-            clip_id = r["clip_id"]
-            if clip_id in self._bad_recordings:
-                continue
-
-            dt = r["date"]
-            if dt < cutoff_date:
-                continue
-
-            rec = FoscamRecording(
-                clip_id=clip_id,
-                created_at=dt,
-                remote_video=r["remote_video"],
-                remote_thumbnail=r["remote_snapshot"],
-                remote_size=r["size"],
-                trigger=r["trigger"],
-                storage_dir=self.storage_dir,
+            _, raw_records = await ftp_client.list_media(
+                mac,
+                since_date=cutoff_date.date(),
+                skip_dates=skip_dates,
             )
-            recordings.append(rec)
+
+        # Partition freshly discovered records by day
+        new_days: dict[str, list[dict[str, Any]]] = {}
+        for r in raw_records:
+            dt: datetime = r["date"]
+            d_str = dt.strftime("%Y%m%d")
+            new_days.setdefault(d_str, []).append(
+                {
+                    "clip_id": r["clip_id"],
+                    "filename": r["filename"],
+                    "date": dt.isoformat(),
+                    "trigger": r["trigger"],
+                    "remote_video": r["remote_video"],
+                    "remote_snapshot": r["remote_snapshot"],
+                    "size": r["size"],
+                }
+            )
+
+        # Replace today with fresh records, and add any previously un-cached days
+        for d_str, records in new_days.items():
+            cached_days[d_str] = records
+
+        # If today had 0 recordings from camera, ensure today is updated as empty
+        if today_str not in new_days:
+            cached_days[today_str] = []
+
+        # Persist updated cache to disk
+        await asyncio.to_thread(self._save_cache_sync, cached_days)
+
+        # Reconstruct FoscamRecording objects from all cached days
+        recordings: list[FoscamRecording] = []
+        for records in cached_days.values():
+            for r in records:
+                clip_id = r["clip_id"]
+                if clip_id in self._bad_recordings:
+                    continue
+
+                raw_dt = r["date"]
+                dt = (
+                    datetime.fromisoformat(raw_dt)
+                    if isinstance(raw_dt, str)
+                    else raw_dt
+                )
+                if dt < cutoff_date:
+                    continue
+
+                rec = FoscamRecording(
+                    clip_id=clip_id,
+                    created_at=dt,
+                    remote_video=r["remote_video"],
+                    remote_thumbnail=r["remote_snapshot"],
+                    remote_size=r["size"],
+                    trigger=r["trigger"],
+                    storage_dir=self.storage_dir,
+                )
+                recordings.append(rec)
 
         self._recordings = sorted(recordings, key=lambda x: x.created_at, reverse=True)
         self._last_refresh = datetime.now()

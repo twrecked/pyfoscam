@@ -1,5 +1,5 @@
-"""Tests for media recording objects."""
-from datetime import datetime
+"""Tests for media recording objects and persistent caching."""
+from datetime import datetime, timedelta
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 import pytest
@@ -41,18 +41,21 @@ def test_recording_properties(tmp_path: Path):
 
 
 @pytest.mark.asyncio
-async def test_media_library_refresh(tmp_path: Path):
+async def test_media_library_refresh_and_cache(tmp_path: Path):
     cam = FoscamCamera("192.168.1.50", "admin", "secret", storage_dir=tmp_path)
     lib = FoscamMediaLibrary(cam, storage_dir=tmp_path)
 
+    yesterday = datetime.now() - timedelta(days=1)
+    yesterday_str = yesterday.strftime("%Y%m%d")
+
     fake_records = [
         {
-            "clip_id": "MD20261116_100000",
-            "filename": "MD20261116_100000.avi",
-            "date": datetime.now(),
+            "clip_id": f"MD{yesterday_str}_100000",
+            "filename": f"MD{yesterday_str}_100000.avi",
+            "date": yesterday,
             "trigger": "motion",
-            "remote_video": "/IPCamera/cam/record/20261116/MD20261116_100000.avi",
-            "remote_snapshot": "/IPCamera/cam/snap/20261116/snap_20261116_100000.jpg",
+            "remote_video": f"/IPCamera/cam/record/{yesterday_str}/MD{yesterday_str}_100000.avi",
+            "remote_snapshot": f"/IPCamera/cam/snap/{yesterday_str}/snap_{yesterday_str}_100000.jpg",
             "size": 500000,
         }
     ]
@@ -62,11 +65,24 @@ async def test_media_library_refresh(tmp_path: Path):
     mock_ftp.__aenter__.return_value = mock_ftp
     mock_ftp.__aexit__.return_value = None
 
-    with patch.object(cam, "start_ftp_server", new_callable=AsyncMock) as mock_start_ftp, \
+    with patch.object(cam, "start_ftp_server", new_callable=AsyncMock), \
          patch.object(cam, "get_ftp_client", return_value=mock_ftp):
+        # 1. Initial refresh -> populates cache file
         records = await lib.refresh()
         assert len(records) == 1
-        assert records[0].clip_id == "MD20261116_100000"
-        assert lib.captured_total == 1
-        assert lib.captured_today == 1
-        mock_start_ftp.assert_awaited_once()
+        assert lib.cache_path.is_file()
+
+        # 2. Second refresh -> yesterday should now be passed in skip_dates!
+        mock_ftp.list_media.return_value = ({}, [])
+        records2 = await lib.refresh()
+        assert len(records2) == 1
+        assert records2[0].clip_id == f"MD{yesterday_str}_100000"
+
+        # Verify skip_dates was passed with yesterday_str
+        call_args = mock_ftp.list_media.call_args[1]
+        assert yesterday_str in call_args["skip_dates"]
+
+        # 3. Clear cache
+        await lib.clear_cache()
+        assert not lib.cache_path.is_file()
+        assert len(lib.recordings) == 0

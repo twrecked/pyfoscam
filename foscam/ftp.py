@@ -150,6 +150,7 @@ class FoscamFTPClient:
         self,
         mac: str | None = None,
         since_date: datetime | date | None = None,
+        skip_dates: set[str] | None = None,
     ) -> tuple[dict[datetime, str], list[dict[str, Any]]]:
         """Scan FTP directory for snapshots and recordings (synchronous)."""
         ftp = self._connect_sync()
@@ -158,6 +159,9 @@ class FoscamFTPClient:
         since_str: str | None = None
         if since_date:
             since_str = since_date.strftime("%Y%m%d")
+
+        skip_set = skip_dates or set()
+        today_str = datetime.now().strftime("%Y%m%d")
 
         snapshots: dict[datetime, str] = {}
         recordings: list[dict[str, Any]] = []
@@ -168,6 +172,9 @@ class FoscamFTPClient:
             for date1 in ftp.list(snap_root):
                 d1_name = os.path.basename(date1)
                 if since_str and d1_name < since_str:
+                    continue
+                if d1_name in skip_set and d1_name != today_str:
+                    LOGGER.debug("Skipping cached snap date folder: %s", d1_name)
                     continue
                 d1_path = f"{snap_root}/{d1_name}"
                 try:
@@ -195,6 +202,9 @@ class FoscamFTPClient:
             for date1 in ftp.list(record_root):
                 d1_name = os.path.basename(date1)
                 if since_str and d1_name < since_str:
+                    continue
+                if d1_name in skip_set and d1_name != today_str:
+                    LOGGER.debug("Skipping cached recording date folder: %s", d1_name)
                     continue
                 d1_path = f"{record_root}/{d1_name}"
                 try:
@@ -272,10 +282,11 @@ class FoscamFTPClient:
         self,
         mac: str | None = None,
         since_date: datetime | date | None = None,
+        skip_dates: set[str] | None = None,
     ) -> tuple[dict[datetime, str], list[dict[str, Any]]]:
         """Scan FTP directory for snapshots and recordings asynchronously."""
         async with self._lock:
-            return await asyncio.to_thread(self._list_media_sync, mac, since_date)
+            return await asyncio.to_thread(self._list_media_sync, mac, since_date, skip_dates)
 
     async def download_file(self, remote_path: str, local_path: str) -> None:
         """Download remote file via FTP asynchronously."""
