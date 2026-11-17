@@ -316,6 +316,17 @@ class FoscamCamera:
         code, _ = await self._send_command("ptzGotoPresetPoint", {"name": preset_name})
         self._check_result(code, f"ptzGotoPresetPoint({preset_name})")
 
+    async def get_ptz_presets(self) -> list[str]:
+        """Fetch list of saved PTZ preset names from camera."""
+        code, res = await self._send_command("getPTZPresetPointList")
+        if code != 0 or not res:
+            return []
+        presets: list[str] = []
+        for k, v in res.items():
+            if k.startswith("point") and v and v.strip():
+                presets.append(v.strip())
+        return presets
+
     def rtsp_url(self, stream: str = "Main") -> str:
         """Return RTSP live stream URL."""
         return f"rtsp://{self.username}:{self.password}@{self.host}:{self.rtsp_port}/video{stream}"
