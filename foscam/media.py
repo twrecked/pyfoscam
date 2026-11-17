@@ -12,12 +12,68 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from .exceptions import FoscamConnectionError, FoscamMediaError
+from .ftp import parse_timestamp_from_filename
 from .transcode import convert_avi_to_mp4, get_video_duration, is_ffmpeg_available
 
 if TYPE_CHECKING:
     from .client import FoscamCamera
 
 LOGGER = logging.getLogger(__package__)
+
+
+def prune_local_recordings(
+    storage_dir: Path | str,
+    days: int = 30,
+    dry_run: bool = False,
+) -> tuple[int, int]:
+    """Prune local media files (.mp4, .avi, .jpg) older than specified days.
+
+    Args:
+        storage_dir: Directory containing downloaded recordings.
+        days: Retention threshold in days; files older are deleted.
+        dry_run: If True, calculate what would be deleted without deleting.
+
+    Returns:
+        (files_deleted_count, bytes_freed_total)
+    """
+    path = Path(storage_dir)
+    if not path.is_dir():
+        return 0, 0
+
+    cutoff = datetime.now() - timedelta(days=days)
+    deleted_count = 0
+    bytes_freed = 0
+
+    valid_extensions = {".mp4", ".avi", ".jpg", ".jpeg"}
+
+    for entry in path.iterdir():
+        if not entry.is_file() or entry.suffix.lower() not in valid_extensions:
+            continue
+
+        # Ignore hidden files like .cache_...json or .tmp files
+        if entry.name.startswith("."):
+            continue
+
+        # Determine creation timestamp
+        dt = parse_timestamp_from_filename(entry.name)
+        if dt is None:
+            # Fall back to file modification time
+            try:
+                dt = datetime.fromtimestamp(entry.stat().st_mtime)
+            except OSError:
+                continue
+
+        if dt < cutoff:
+            try:
+                size = entry.stat().st_size
+                if not dry_run:
+                    entry.unlink(missing_ok=True)
+                deleted_count += 1
+                bytes_freed += size
+            except OSError as err:
+                LOGGER.debug("Failed deleting expired file %s: %s", entry, err)
+
+    return deleted_count, bytes_freed
 
 
 class FoscamRecording:
@@ -222,6 +278,15 @@ class FoscamMediaLibrary:
         await asyncio.to_thread(_clear)
         self._recordings = []
         self._last_refresh = None
+
+    async def prune_local(
+        self, days: int | None = None, dry_run: bool = False
+    ) -> tuple[int, int]:
+        """Prune local downloaded recordings older than retention days."""
+        retention = days if days is not None else self.days_cutoff
+        return await asyncio.to_thread(
+            prune_local_recordings, self.storage_dir, retention, dry_run
+        )
 
     @property
     def recordings(self) -> list[FoscamRecording]:

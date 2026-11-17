@@ -184,3 +184,46 @@ def media_sync(
             click.echo("Sync complete.")
 
     run_async(_run())
+
+
+@media_group.command("prune")
+@click.argument("camera", required=False)
+@click.option(
+    "--days",
+    default=30,
+    show_default=True,
+    type=int,
+    help="Retention period in days; local files older than this will be deleted",
+)
+@click.option(
+    "--dry-run",
+    is_flag=True,
+    help="Display what would be deleted without removing files",
+)
+@click.pass_context
+def media_prune(
+    ctx: click.Context,
+    camera: str | None,
+    days: int,
+    dry_run: bool,
+) -> None:
+    """Prune old downloaded recordings from local storage."""
+
+    async def _run() -> None:
+        cam_name, client = create_client_from_context(ctx, camera)
+        mode_str = "[DRY RUN] " if dry_run else ""
+        click.echo(
+            f"{mode_str}Scanning local storage for '{cam_name}' (files older than {days} days)..."
+        )
+        deleted, freed = await client.media.prune_local(days=days, dry_run=dry_run)
+        if deleted == 0:
+            click.echo(
+                f"{mode_str}No files older than {days} days found in {client.storage_dir}."
+            )
+        else:
+            action = "Would delete" if dry_run else "Pruned"
+            click.echo(
+                f"{action} {deleted} files ({format_bytes(freed)} freed) from {client.storage_dir}."
+            )
+
+    run_async(_run())

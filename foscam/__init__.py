@@ -39,6 +39,9 @@ from .media import (
 from .media import (
     FoscamRecording as FoscamRecording,
 )
+from .media import (
+    prune_local_recordings as prune_local_recordings,
+)
 from .transcode import (
     convert_avi_to_mp4 as convert_avi_to_mp4,
 )
@@ -62,6 +65,7 @@ __all__ = [
     "get_camera_config",
     "is_ffmpeg_available",
     "load_config",
+    "prune_local_recordings",
     "remove_camera_config",
     "set_camera_config",
 ]

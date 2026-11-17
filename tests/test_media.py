@@ -86,3 +86,39 @@ async def test_media_library_refresh_and_cache(tmp_path: Path):
         await lib.clear_cache()
         assert not lib.cache_path.is_file()
         assert len(lib.recordings) == 0
+
+
+@pytest.mark.asyncio
+async def test_prune_local_recordings(tmp_path: Path):
+    cam = FoscamCamera("192.168.1.50", "admin", "secret", storage_dir=tmp_path)
+    lib = FoscamMediaLibrary(cam, storage_dir=tmp_path)
+
+    # 1. Old files (should be pruned)
+    old_mp4 = tmp_path / "MD20200101_120000.mp4"
+    old_mp4.write_bytes(b"old video content")
+    old_jpg = tmp_path / "MD20200101_120000.jpg"
+    old_jpg.write_bytes(b"old thumbnail content")
+
+    # 2. Recent file (today, should NOT be pruned)
+    today_str = datetime.now().strftime("%Y%m%d")
+    recent_mp4 = tmp_path / f"MD{today_str}_120000.mp4"
+    recent_mp4.write_bytes(b"recent video content")
+
+    # 3. Hidden cache file (should NOT be pruned)
+    cache_file = tmp_path / ".cache_192_168_1_50.json"
+    cache_file.write_bytes(b"{}")
+
+    # Dry run test
+    deleted, freed = await lib.prune_local(days=30, dry_run=True)
+    assert deleted == 2
+    assert freed == len(b"old video content") + len(b"old thumbnail content")
+    assert old_mp4.is_file()
+    assert old_jpg.is_file()
+
+    # Actual prune
+    deleted, freed = await lib.prune_local(days=30, dry_run=False)
+    assert deleted == 2
+    assert not old_mp4.is_file()
+    assert not old_jpg.is_file()
+    assert recent_mp4.is_file()
+    assert cache_file.is_file()
