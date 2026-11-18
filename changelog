@@ -1,5 +1,20 @@
 Unreleased
 
+0.1.0-alpha.2
+  - Added native async hardware control coroutines to FoscamCamera:
+    - Sleep / privacy mode: is_asleep(), sleep(), wake_up()
+    - Physical status LED: get_led_state(), set_led_state()
+    - Video orientation: get_flip_and_mirror(), set_flip(), set_mirror()
+    - Night vision infrared: get_infra_led_config(), set_infra_led_config(), open_infra_led(), close_infra_led(), set_infra_led()
+    - Audio volume & mute: get_volume(), set_volume(), get_voice_state(), set_voice_state(), get_speak_volume(), set_speak_volume()
+    - White light / spotlight: open_white_light(), close_white_light(), get_white_light_brightness()
+    - Siren alarm: get_siren_config(), set_siren_config()
+  - Added get_full_state() to query all alarms and hardware controls concurrently via asyncio.gather with safe error handling for unsupported endpoints
+  - Enhanced CLI 'status' command to display alarms, privacy/sleep state, status LED, night vision, flip/mirror orientation, volume, and mute status
+  - Added dedicated CLI control subcommands: sleep, wake, led, volume, mute, ir, flip, mirror
+  - Refactored CLI Home Assistant options into a pure boolean flag (--hass) and an explicit directory argument (--hass-dir), eliminating argv preprocessing workarounds
+  - Expanded unit test suite to 25 automated tests covering all new client methods and CLI options
+
 0.1.0-alpha.1
   - Initial alpha release of modernized pyfoscam library and CLI
   - Native asyncio-first core using direct aiohttp CGI communication
