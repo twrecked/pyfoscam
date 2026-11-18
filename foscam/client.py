@@ -330,3 +330,228 @@ class FoscamCamera:
     def rtsp_url(self, stream: str = "Main") -> str:
         """Return RTSP live stream URL."""
         return f"rtsp://{self.username}:{self.password}@{self.host}:{self.rtsp_port}/video{stream}"
+
+    async def is_asleep(self) -> bool:
+        """Check if camera is in sleep / privacy mode."""
+        code, res = await self._send_command("getAlexaState")
+        self._check_result(code, "getAlexaState")
+        return (res or {}).get("state") == "1"
+
+    async def sleep(self) -> None:
+        """Put camera into sleep / privacy mode."""
+        code, _ = await self._send_command("alexaSleep")
+        self._check_result(code, "alexaSleep")
+
+    async def wake_up(self) -> None:
+        """Wake camera from sleep / privacy mode."""
+        code, _ = await self._send_command("alexaWakeUp")
+        self._check_result(code, "alexaWakeUp")
+
+    async def get_led_state(self) -> bool:
+        """Get camera physical status LED state (True if enabled)."""
+        code, res = await self._send_command("getLedEnableState")
+        self._check_result(code, "getLedEnableState")
+        return (res or {}).get("isEnable") == "1"
+
+    async def set_led_state(self, enabled: bool) -> None:
+        """Enable or disable camera physical status LED."""
+        code, _ = await self._send_command(
+            "setLedEnableState", {"isEnable": "1" if enabled else "0"}
+        )
+        self._check_result(code, "setLedEnableState")
+
+    async def get_flip_and_mirror(self) -> dict[str, bool]:
+        """Get video flip and mirror settings."""
+        code, res = await self._send_command("getMirrorAndFlipSetting")
+        self._check_result(code, "getMirrorAndFlipSetting")
+        res_dict = res or {}
+        return {
+            "is_flip": res_dict.get("isFlip") == "1",
+            "is_mirror": res_dict.get("isMirror") == "1",
+        }
+
+    async def set_flip(self, flip: bool) -> None:
+        """Set video vertical flip."""
+        code, _ = await self._send_command(
+            "flipVideo", {"isFlip": "1" if flip else "0"}
+        )
+        self._check_result(code, "flipVideo")
+
+    async def set_mirror(self, mirror: bool) -> None:
+        """Set video horizontal mirror."""
+        code, _ = await self._send_command(
+            "mirrorVideo", {"isMirror": "1" if mirror else "0"}
+        )
+        self._check_result(code, "mirrorVideo")
+
+    async def get_infra_led_config(self) -> dict[str, Any]:
+        """Get infrared LED night vision configuration."""
+        code, res = await self._send_command("getInfraLedConfig")
+        self._check_result(code, "getInfraLedConfig")
+        res_dict = res or {}
+        mode_str = res_dict.get("mode", "0")
+        try:
+            mode = int(mode_str)
+        except ValueError:
+            mode = 0
+        return {
+            "mode": mode,
+            "auto": mode == 0,
+            "raw": res_dict,
+        }
+
+    async def set_infra_led_config(self, mode: int) -> None:
+        """Set infrared LED mode (0 = Auto, 1 = Manual)."""
+        code, _ = await self._send_command("setInfraLedConfig", {"mode": str(mode)})
+        self._check_result(code, "setInfraLedConfig")
+
+    async def open_infra_led(self) -> None:
+        """Force open infrared LED."""
+        code, _ = await self._send_command("openInfraLed")
+        self._check_result(code, "openInfraLed")
+
+    async def close_infra_led(self) -> None:
+        """Force close infrared LED."""
+        code, _ = await self._send_command("closeInfraLed")
+        self._check_result(code, "closeInfraLed")
+
+    async def set_infra_led(self, mode_or_state: str | bool) -> None:
+        """Set infrared LED mode or force state ('auto', 'on', 'off' or bool)."""
+        if isinstance(mode_or_state, str):
+            val = mode_or_state.lower().strip()
+            if val == "auto":
+                await self.set_infra_led_config(0)
+            elif val in ("on", "open", "true", "1"):
+                await self.set_infra_led_config(1)
+                await self.open_infra_led()
+            elif val in ("off", "close", "false", "0"):
+                await self.set_infra_led_config(1)
+                await self.close_infra_led()
+            else:
+                raise FoscamCommandError(
+                    f"Invalid infra led state '{mode_or_state}'. Use 'auto', 'on', or 'off'."
+                )
+        elif mode_or_state:
+            await self.set_infra_led_config(1)
+            await self.open_infra_led()
+        else:
+            await self.set_infra_led_config(0)
+
+    async def get_volume(self) -> int:
+        """Get camera audio volume (0-100)."""
+        code, res = await self._send_command("getAudioVolume")
+        self._check_result(code, "getAudioVolume")
+        try:
+            return int((res or {}).get("volume", 0))
+        except ValueError:
+            return 0
+
+    async def set_volume(self, volume: int) -> None:
+        """Set camera audio volume (0-100)."""
+        clamped = max(0, min(100, int(volume)))
+        code, _ = await self._send_command("setAudioVolume", {"volume": str(clamped)})
+        self._check_result(code, "setAudioVolume")
+
+    async def get_voice_state(self) -> bool:
+        """Get camera voice/audio enabled state (True if sound output is enabled)."""
+        code, res = await self._send_command("getVoiceEnableState")
+        self._check_result(code, "getVoiceEnableState")
+        return (res or {}).get("isEnable") == "1"
+
+    async def set_voice_state(self, enabled: bool) -> None:
+        """Enable or disable camera audio voice output."""
+        code, _ = await self._send_command(
+            "setVoiceEnableState", {"isEnable": "1" if enabled else "0"}
+        )
+        self._check_result(code, "setVoiceEnableState")
+
+    async def get_speak_volume(self) -> int:
+        """Get speak volume (0-100)."""
+        code, res = await self._send_command("getSpeakVolume")
+        self._check_result(code, "getSpeakVolume")
+        try:
+            return int((res or {}).get("SpeakVolume", 0))
+        except ValueError:
+            return 0
+
+    async def set_speak_volume(self, volume: int) -> None:
+        """Set speak volume (0-100)."""
+        clamped = max(0, min(100, int(volume)))
+        code, _ = await self._send_command(
+            "setSpeakVolume", {"SpeakVolume": str(clamped)}
+        )
+        self._check_result(code, "setSpeakVolume")
+
+    async def open_white_light(self) -> None:
+        """Turn on camera white light / spotlight."""
+        code, _ = await self._send_command("openWhiteLight")
+        self._check_result(code, "openWhiteLight")
+
+    async def close_white_light(self) -> None:
+        """Turn off camera white light / spotlight."""
+        code, _ = await self._send_command("closeWhiteLight")
+        self._check_result(code, "closeWhiteLight")
+
+    async def get_white_light_brightness(self) -> dict[str, Any]:
+        """Get camera white light configuration."""
+        code, res = await self._send_command("getWhiteLightBrightness")
+        self._check_result(code, "getWhiteLightBrightness")
+        return dict(res or {})
+
+    async def get_siren_config(self) -> dict[str, Any]:
+        """Get siren alarm configuration."""
+        code, res = await self._send_command("getSirenConfig")
+        self._check_result(code, "getSirenConfig")
+        return dict(res or {})
+
+    async def set_siren_config(
+        self, enable: bool, volume: int = 100, reserved: int = 0
+    ) -> None:
+        """Set siren alarm configuration."""
+        clamped_vol = max(0, min(100, int(volume)))
+        params = {
+            "sirenEnable": "1" if enable else "0",
+            "sirenvolume": str(clamped_vol),
+            "reserved": str(reserved),
+        }
+        code, _ = await self._send_command("setSirenConfig", params)
+        self._check_result(code, "setSirenConfig")
+
+    async def get_full_state(self) -> dict[str, Any]:
+        """Fetch complete camera state including alarms, sleep, LED, volume, flip, and IR."""
+        results = await asyncio.gather(
+            self.get_state(),
+            self.is_asleep(),
+            self.get_led_state(),
+            self.get_flip_and_mirror(),
+            self.get_infra_led_config(),
+            self.get_volume(),
+            self.get_voice_state(),
+            self.get_white_light_brightness(),
+            self.get_siren_config(),
+            return_exceptions=True,
+        )
+
+        state = results[0] if isinstance(results[0], dict) else {}
+        sleep = results[1] if isinstance(results[1], bool) else None
+        led = results[2] if isinstance(results[2], bool) else None
+        mf = results[3] if isinstance(results[3], dict) else {}
+        ir = results[4] if isinstance(results[4], dict) else {}
+        vol = results[5] if isinstance(results[5], int) else None
+        voice = results[6] if isinstance(results[6], bool) else None
+        white_light = results[7] if isinstance(results[7], dict) else None
+        siren = results[8] if isinstance(results[8], dict) else None
+
+        return {
+            **state,
+            "is_asleep": sleep,
+            "led_enabled": led,
+            "is_flip": mf.get("is_flip"),
+            "is_mirror": mf.get("is_mirror"),
+            "infra_led_mode": ir.get("mode"),
+            "infra_led_auto": ir.get("auto"),
+            "volume": vol,
+            "voice_enabled": voice,
+            "white_light": white_light,
+            "siren": siren,
+        }

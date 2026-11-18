@@ -7,13 +7,21 @@ import sys
 import click
 
 from .camera_cmd import (
+    flip_cmd,
     info_cmd,
+    ir_cmd,
+    led_cmd,
+    mirror_cmd,
     motion_cmd,
+    mute_cmd,
     preset_cmd,
     ptz_cmd,
+    sleep_cmd,
     snapshot_cmd,
     status_cmd,
     stream_cmd,
+    volume_cmd,
+    wake_cmd,
 )
 from .config_cmd import config_group
 from .media_cmd import media_group
@@ -53,6 +61,14 @@ cli.add_command(stream_cmd)
 cli.add_command(ptz_cmd)
 cli.add_command(preset_cmd)
 cli.add_command(motion_cmd)
+cli.add_command(sleep_cmd)
+cli.add_command(wake_cmd)
+cli.add_command(led_cmd)
+cli.add_command(flip_cmd)
+cli.add_command(mirror_cmd)
+cli.add_command(ir_cmd)
+cli.add_command(volume_cmd)
+cli.add_command(mute_cmd)
 
 
 KNOWN_SUBCOMMANDS = {
@@ -65,6 +81,14 @@ KNOWN_SUBCOMMANDS = {
     "ptz",
     "preset",
     "motion",
+    "sleep",
+    "wake",
+    "led",
+    "flip",
+    "mirror",
+    "ir",
+    "volume",
+    "mute",
 }
 
 
