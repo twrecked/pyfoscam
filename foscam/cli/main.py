@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import logging
-import sys
 
 import click
 
@@ -30,13 +29,20 @@ from .media_cmd import media_group
 @click.group()
 @click.option("-v", "--verbose", count=True, help="Increase output verbosity")
 @click.option("-c", "--config", "config_path", help="Path to custom cameras.json config")
-@click.option("--hass", "hass_dir", is_flag=False, flag_value="/config", default=None, help="Use Home Assistant configuration and camera entries (defaults to /config, or specify path)")
+@click.option("--hass", is_flag=True, default=False, help="Use Home Assistant configuration from standard locations")
+@click.option("--hass-dir", default=None, help="Path to Home Assistant configuration directory (implies --hass)")
 @click.pass_context
-def cli(ctx: click.Context, verbose: int, config_path: str | None, hass_dir: str | None) -> None:
+def cli(ctx: click.Context, verbose: int, config_path: str | None, hass: bool, hass_dir: str | None) -> None:
     """pyfoscam: Manage Foscam IP cameras and recording library."""
     ctx.ensure_object(dict)
+    target_hass: str | None = None
+    if hass_dir:
+        target_hass = hass_dir
+    elif hass:
+        target_hass = "__AUTO__"
+
     ctx.obj["config_path"] = config_path
-    ctx.obj["hass_dir"] = hass_dir
+    ctx.obj["hass_dir"] = target_hass
     ctx.obj["verbose"] = verbose > 0
 
     log_level = logging.WARNING
@@ -71,43 +77,8 @@ cli.add_command(volume_cmd)
 cli.add_command(mute_cmd)
 
 
-KNOWN_SUBCOMMANDS = {
-    "config",
-    "media",
-    "status",
-    "info",
-    "snapshot",
-    "stream",
-    "ptz",
-    "preset",
-    "motion",
-    "sleep",
-    "wake",
-    "led",
-    "flip",
-    "mirror",
-    "ir",
-    "volume",
-    "mute",
-}
-
-
-def preprocess_argv(args: list[str]) -> list[str]:
-    """Preprocess arguments so '--hass' without path defaults to auto-detect."""
-    new_args = list(args)
-    for i, arg in enumerate(new_args):
-        if arg == "--hass" and (
-            i + 1 >= len(new_args)
-            or new_args[i + 1].startswith("-")
-            or new_args[i + 1] in KNOWN_SUBCOMMANDS
-        ):
-            new_args[i] = "--hass=__AUTO__"
-    return new_args
-
-
 def main() -> None:
-    args = preprocess_argv(sys.argv[1:])
-    cli.main(args=args)
+    cli.main()
 
 
 if __name__ == "__main__":

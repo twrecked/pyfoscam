@@ -118,3 +118,14 @@ def test_read_hass_config(tmp_path: Path):
     assert cam_cfg["host"] == "192.168.1.55"
     assert cam_cfg["username"] == "admin"
 
+
+
+def test_cli_hass_flags(tmp_path: Path):
+    from click.testing import CliRunner
+    from foscam.cli.main import cli
+
+    runner = CliRunner()
+    res = runner.invoke(cli, ["--help"])
+    assert "--hass" in res.output
+    assert "--hass-dir" in res.output
+    assert res.exit_code == 0

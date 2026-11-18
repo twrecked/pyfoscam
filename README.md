@@ -35,5 +35,5 @@ pyfoscam media download living_room MD20210522_120400 -o clip.mp4
 pyfoscam --hass status
 pyfoscam --hass media list
 # Or specify HA config path directly:
-pyfoscam --hass /home/user/homeassistant media list
+pyfoscam --hass-dir /home/user/homeassistant media list
 ```
