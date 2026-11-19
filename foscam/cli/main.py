@@ -7,6 +7,7 @@ import click
 
 from .camera_cmd import (
     flip_cmd,
+    focus_cmd,
     info_cmd,
     ir_cmd,
     led_cmd,
@@ -21,6 +22,7 @@ from .camera_cmd import (
     stream_cmd,
     volume_cmd,
     wake_cmd,
+    zoom_cmd,
 )
 from .config_cmd import config_group
 from .media_cmd import media_group
@@ -65,6 +67,8 @@ cli.add_command(info_cmd)
 cli.add_command(snapshot_cmd)
 cli.add_command(stream_cmd)
 cli.add_command(ptz_cmd)
+cli.add_command(zoom_cmd)
+cli.add_command(focus_cmd)
 cli.add_command(preset_cmd)
 cli.add_command(motion_cmd)
 cli.add_command(sleep_cmd)

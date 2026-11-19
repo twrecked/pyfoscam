@@ -24,6 +24,12 @@ pyfoscam snapshot living_room -o snap.jpg
 # Pan / Tilt
 pyfoscam ptz living_room up --travel-time 0.2
 
+# Zoom & Focus (supported models)
+pyfoscam zoom in living_room --travel-time 0.2
+pyfoscam zoom stop living_room
+pyfoscam focus near living_room --travel-time 0.2
+pyfoscam focus stop living_room
+
 # List recordings
 pyfoscam media list living_room --days 7
 

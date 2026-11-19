@@ -79,6 +79,62 @@ async def test_ptz():
 
 
 @pytest.mark.asyncio
+async def test_zoom():
+    cam = FoscamCamera("192.168.1.50", "admin", "secret")
+    with patch.object(cam, "_send_command", new_callable=AsyncMock) as mock_send,          patch("asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
+        mock_send.return_value = (0, {})
+        await cam.zoom("in", travel_time=0.1)
+        assert mock_send.await_count == 2
+        mock_send.assert_any_await("zoomIn")
+        mock_send.assert_any_await("zoomStop")
+        mock_sleep.assert_awaited_once_with(0.1)
+
+    with patch.object(cam, "_send_command", new_callable=AsyncMock) as mock_send,          patch("asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
+        mock_send.return_value = (0, {})
+        await cam.zoom("out", travel_time=0.2)
+        assert mock_send.await_count == 2
+        mock_send.assert_any_await("zoomOut")
+        mock_send.assert_any_await("zoomStop")
+        mock_sleep.assert_awaited_once_with(0.2)
+
+    with patch.object(cam, "_send_command", new_callable=AsyncMock) as mock_send:
+        mock_send.return_value = (0, {})
+        await cam.zoom_stop()
+        mock_send.assert_awaited_once_with("zoomStop")
+
+    with pytest.raises(FoscamCommandError):
+        await cam.zoom("invalid_zoom")
+
+
+@pytest.mark.asyncio
+async def test_focus():
+    cam = FoscamCamera("192.168.1.50", "admin", "secret")
+    with patch.object(cam, "_send_command", new_callable=AsyncMock) as mock_send,          patch("asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
+        mock_send.return_value = (0, {})
+        await cam.focus("near", travel_time=0.1)
+        assert mock_send.await_count == 2
+        mock_send.assert_any_await("focusNear")
+        mock_send.assert_any_await("focusStop")
+        mock_sleep.assert_awaited_once_with(0.1)
+
+    with patch.object(cam, "_send_command", new_callable=AsyncMock) as mock_send,          patch("asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
+        mock_send.return_value = (0, {})
+        await cam.focus("far", travel_time=0.2)
+        assert mock_send.await_count == 2
+        mock_send.assert_any_await("focusFar")
+        mock_send.assert_any_await("focusStop")
+        mock_sleep.assert_awaited_once_with(0.2)
+
+    with patch.object(cam, "_send_command", new_callable=AsyncMock) as mock_send:
+        mock_send.return_value = (0, {})
+        await cam.focus_stop()
+        mock_send.assert_awaited_once_with("focusStop")
+
+    with pytest.raises(FoscamCommandError):
+        await cam.focus("invalid_focus")
+
+
+@pytest.mark.asyncio
 async def test_http_cgi_parsing():
     cam = FoscamCamera("192.168.1.50", "admin", "secret")
     xml_response = (
