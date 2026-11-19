@@ -1,5 +1,16 @@
 Unreleased
 
+0.1.0-alpha.3
+  - Added native async optical zoom and manual focus coroutines to FoscamCamera:
+    - Optical zoom: zoom(direction, travel_time), zoom_stop()
+    - Manual focus: focus(direction, travel_time), focus_stop()
+  - Added cancellation-safe execution across all timed movement actions (ptz, zoom, focus) using try ... finally blocks to ensure motor movement stops if a task is cancelled
+  - Added CLI commands:
+    - zoom [in|out|stop] [-t travel_time]
+    - focus [near|far|stop] [-t travel_time]
+  - Documented zoom and focus commands in README.md
+  - Added unit test coverage for zoom, focus, and stop handling in tests/test_client.py
+
 0.1.0-alpha.2
   - Added native async hardware control coroutines to FoscamCamera:
     - Sleep / privacy mode: is_asleep(), sleep(), wake_up()
