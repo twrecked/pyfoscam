@@ -9,7 +9,14 @@ import click
 
 from ..client import FoscamCamera
 from ..config import get_camera_config
-from ..const import DEFAULT_PTZ_TRAVEL_TIME, PTZ_COMMANDS
+from ..const import (
+    DEFAULT_FOCUS_TRAVEL_TIME,
+    DEFAULT_PTZ_TRAVEL_TIME,
+    DEFAULT_ZOOM_TRAVEL_TIME,
+    FOCUS_COMMANDS,
+    PTZ_COMMANDS,
+    ZOOM_COMMANDS,
+)
 from .common import run_async
 
 LOGGER = logging.getLogger(__package__)
@@ -163,6 +170,70 @@ def ptz_cmd(ctx: click.Context, direction: str, camera: str | None, travel_time:
             else:
                 click.echo(f"Moving '{cam_name}' {direction} for {travel_time}s...")
                 await client.ptz(direction, travel_time=travel_time)
+                click.echo("Done.")
+
+    run_async(_run())
+
+
+@click.command("zoom")
+@click.argument(
+    "direction",
+    type=click.Choice(list(ZOOM_COMMANDS.keys()) + ["stop"], case_sensitive=False),
+)
+@click.argument("camera", required=False)
+@click.option(
+    "-t",
+    "--travel-time",
+    default=DEFAULT_ZOOM_TRAVEL_TIME,
+    show_default=True,
+    type=float,
+    help="Zoom travel time (seconds)",
+)
+@click.pass_context
+def zoom_cmd(ctx: click.Context, direction: str, camera: str | None, travel_time: float) -> None:
+    """Zoom camera lens (in, out, stop)."""
+
+    async def _run() -> None:
+        cam_name, client = create_client_from_context(ctx, camera)
+        async with client:
+            if direction.lower() == "stop":
+                await client.zoom_stop()
+                click.echo(f"Stopped zoom on '{cam_name}'.")
+            else:
+                click.echo(f"Zooming '{cam_name}' {direction} for {travel_time}s...")
+                await client.zoom(direction, travel_time=travel_time)
+                click.echo("Done.")
+
+    run_async(_run())
+
+
+@click.command("focus")
+@click.argument(
+    "direction",
+    type=click.Choice(list(FOCUS_COMMANDS.keys()) + ["stop"], case_sensitive=False),
+)
+@click.argument("camera", required=False)
+@click.option(
+    "-t",
+    "--travel-time",
+    default=DEFAULT_FOCUS_TRAVEL_TIME,
+    show_default=True,
+    type=float,
+    help="Focus travel time (seconds)",
+)
+@click.pass_context
+def focus_cmd(ctx: click.Context, direction: str, camera: str | None, travel_time: float) -> None:
+    """Focus camera lens (near, far, stop)."""
+
+    async def _run() -> None:
+        cam_name, client = create_client_from_context(ctx, camera)
+        async with client:
+            if direction.lower() == "stop":
+                await client.focus_stop()
+                click.echo(f"Stopped focus on '{cam_name}'.")
+            else:
+                click.echo(f"Focusing '{cam_name}' {direction} for {travel_time}s...")
+                await client.focus(direction, travel_time=travel_time)
                 click.echo("Done.")
 
     run_async(_run())

@@ -12,12 +12,16 @@ from urllib.parse import unquote, urlencode
 import aiohttp
 
 from .const import (
+    DEFAULT_FOCUS_TRAVEL_TIME,
     DEFAULT_FTP_PORT,
     DEFAULT_PORT,
     DEFAULT_PTZ_TRAVEL_TIME,
     DEFAULT_RTSP_PORT,
     DEFAULT_TIMEOUT,
+    DEFAULT_ZOOM_TRAVEL_TIME,
+    FOCUS_COMMANDS,
     PTZ_COMMANDS,
+    ZOOM_COMMANDS,
 )
 from .exceptions import (
     FoscamAuthError,
@@ -303,13 +307,59 @@ class FoscamCamera:
         self._check_result(code, f"ptz({movement})")
 
         if travel_time > 0:
-            await asyncio.sleep(travel_time)
-            await self.ptz_stop()
+            try:
+                await asyncio.sleep(travel_time)
+            finally:
+                await self.ptz_stop()
 
     async def ptz_stop(self) -> None:
         """Stop PTZ movement."""
         code, _ = await self._send_command("ptzStopRun")
         self._check_result(code, "ptzStopRun")
+
+    async def zoom(self, direction: str, travel_time: float = DEFAULT_ZOOM_TRAVEL_TIME) -> None:
+        """Execute an optical zoom action for travel_time seconds."""
+        direction = direction.lower().strip()
+        cmd_name = ZOOM_COMMANDS.get(direction)
+        if not cmd_name:
+            valid = ", ".join(ZOOM_COMMANDS.keys())
+            raise FoscamCommandError(f"Invalid zoom direction '{direction}'. Valid: {valid}")
+
+        code, _ = await self._send_command(cmd_name)
+        self._check_result(code, f"zoom({direction})")
+
+        if travel_time > 0:
+            try:
+                await asyncio.sleep(travel_time)
+            finally:
+                await self.zoom_stop()
+
+    async def zoom_stop(self) -> None:
+        """Stop optical zoom movement."""
+        code, _ = await self._send_command("zoomStop")
+        self._check_result(code, "zoomStop")
+
+    async def focus(self, direction: str, travel_time: float = DEFAULT_FOCUS_TRAVEL_TIME) -> None:
+        """Execute a manual focus action for travel_time seconds."""
+        direction = direction.lower().strip()
+        cmd_name = FOCUS_COMMANDS.get(direction)
+        if not cmd_name:
+            valid = ", ".join(FOCUS_COMMANDS.keys())
+            raise FoscamCommandError(f"Invalid focus direction '{direction}'. Valid: {valid}")
+
+        code, _ = await self._send_command(cmd_name)
+        self._check_result(code, f"focus({direction})")
+
+        if travel_time > 0:
+            try:
+                await asyncio.sleep(travel_time)
+            finally:
+                await self.focus_stop()
+
+    async def focus_stop(self) -> None:
+        """Stop focus movement."""
+        code, _ = await self._send_command("focusStop")
+        self._check_result(code, "focusStop")
 
     async def ptz_preset(self, preset_name: str) -> None:
         """Go to PTZ preset."""

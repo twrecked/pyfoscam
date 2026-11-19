@@ -26,3 +26,23 @@ PTZ_COMMANDS = {
 }
 
 DEFAULT_PTZ_TRAVEL_TIME = 0.125
+
+ZOOM_IN = "in"
+ZOOM_OUT = "out"
+
+ZOOM_COMMANDS = {
+    ZOOM_IN: "zoomIn",
+    ZOOM_OUT: "zoomOut",
+}
+
+DEFAULT_ZOOM_TRAVEL_TIME = 0.125
+
+FOCUS_NEAR = "near"
+FOCUS_FAR = "far"
+
+FOCUS_COMMANDS = {
+    FOCUS_NEAR: "focusNear",
+    FOCUS_FAR: "focusFar",
+}
+
+DEFAULT_FOCUS_TRAVEL_TIME = 0.125
