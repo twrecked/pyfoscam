@@ -1,12 +1,46 @@
 """Tests for media recording objects and persistent caching."""
+import asyncio
+import tempfile
 from datetime import datetime, timedelta
 from pathlib import Path
+from threading import get_ident
 from unittest.mock import AsyncMock, patch
 import pytest
 
 from foscam.client import FoscamCamera
 from foscam.exceptions import FoscamMediaError
-from foscam.media import FoscamMediaLibrary, FoscamRecording
+from foscam.media import FoscamMediaLibrary, FoscamRecording, _staging_directory
+
+
+@pytest.mark.asyncio
+async def test_staging_directory_cleanup_runs_off_loop_on_cancellation(tmp_path: Path):
+    loop_thread = get_ident()
+    ready = asyncio.Event()
+    temporary_directory = tempfile.TemporaryDirectory
+
+    class CheckedDirectory(temporary_directory):
+        def __init__(self, **kwargs):
+            assert get_ident() != loop_thread
+            super().__init__(**kwargs)
+
+        def cleanup(self) -> None:
+            assert get_ident() != loop_thread
+            super().cleanup()
+
+    async def download() -> None:
+        async with _staging_directory(tmp_path) as staging:
+            assert staging.is_dir()
+            ready.set()
+            await asyncio.Future()
+
+    with patch("foscam.media.tempfile.TemporaryDirectory", CheckedDirectory):
+        task = asyncio.create_task(download())
+        await asyncio.wait_for(ready.wait(), timeout=5)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+    assert not list(tmp_path.iterdir())
 
 
 def test_recording_properties(tmp_path: Path):

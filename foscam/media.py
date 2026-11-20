@@ -7,6 +7,8 @@ import logging
 import os
 import re
 import tempfile
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -28,6 +30,25 @@ LOGGER = logging.getLogger(__package__)
 RECORDING_SETTLE_SECONDS = 10
 # Old versions accepted header-only MP4s (observed at 262 bytes).
 MIN_CACHED_MP4_BYTES = 512
+
+
+@asynccontextmanager
+async def _staging_directory(parent: Path) -> AsyncIterator[Path]:
+    """Create and clean up a staging directory off the event loop."""
+    creation = asyncio.create_task(
+        asyncio.to_thread(tempfile.TemporaryDirectory, prefix=".foscam-", dir=parent)
+    )
+    try:
+        directory = await asyncio.shield(creation)
+    except asyncio.CancelledError:
+        # The worker can still create the directory after cancellation.
+        directory = await creation
+        await asyncio.to_thread(directory.cleanup)
+        raise
+    try:
+        yield Path(directory.name)
+    finally:
+        await asyncio.to_thread(directory.cleanup)
 
 
 def _file_size(path: Path) -> int:
@@ -459,8 +480,8 @@ class FoscamMediaLibrary:
 
             await asyncio.to_thread(target_video.parent.mkdir, parents=True, exist_ok=True)
             # Stage on the destination filesystem so publication is atomic.
-            with tempfile.TemporaryDirectory(prefix=".foscam-", dir=target_video.parent) as staging:
-                raw_video = Path(staging) / "recording.avi"
+            async with _staging_directory(target_video.parent) as staging:
+                raw_video = staging / "recording.avi"
                 await self.camera.start_ftp_server()
                 async with self.camera.get_ftp_client() as ftp_client:
                     first_size = await ftp_client.file_size(rec.remote_video)
@@ -489,7 +510,7 @@ class FoscamMediaLibrary:
 
                 result = raw_video
                 if convert:
-                    result = Path(staging) / "recording.mp4"
+                    result = staging / "recording.mp4"
                     await convert_avi_to_mp4(raw_video, result)
                     if (
                         await asyncio.to_thread(_file_size, result) < MIN_CACHED_MP4_BYTES
