@@ -1,10 +1,33 @@
 """Tests for FTP path and filename parsing."""
 from datetime import datetime
+from unittest.mock import Mock, patch
 
+import pytest
+
+from foscam.exceptions import FoscamConnectionError
 from foscam.ftp import (
+    FoscamFTPClient,
     parse_timestamp_from_filename,
     parse_trigger_from_filename,
 )
+
+
+@pytest.mark.asyncio
+async def test_file_size_reads_a_fresh_listing():
+    client = FoscamFTPClient("192.168.1.50", "admin", "secret")
+    ftp = Mock()
+    ftp.list.side_effect = [
+        [{"name": "motion.avi", "size": "2048"}],
+        [{"name": "motion.avi", "size": 4096}],
+        [{"name": "different.avi", "size": 8192}],
+    ]
+    with patch.object(client, "_connect_sync", return_value=ftp):
+        assert await client.file_size("/camera/motion.avi") == 2048
+        assert await client.file_size("/camera/motion.avi") == 4096
+        with pytest.raises(FoscamConnectionError, match="not found on camera"):
+            await client.file_size("/camera/motion.avi")
+    assert ftp.list.call_count == 3
+    ftp.list.assert_called_with("/camera", extra=True)
 
 
 def test_parse_timestamp():

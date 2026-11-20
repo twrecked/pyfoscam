@@ -293,6 +293,23 @@ class FoscamFTPClient:
         async with self._lock:
             await asyncio.to_thread(self._download_file_sync, remote_path, local_path)
 
+    def _file_size_sync(self, remote_path: str) -> int:
+        """Read the current size using the same listing as the media catalog."""
+        ftp = self._connect_sync()
+        directory, filename = os.path.split(remote_path)
+        try:
+            for entry in ftp.list(directory, extra=True):
+                if entry.get("name") == filename:
+                    return int(entry["size"])
+        except (ftplib.Error, OSError, KeyError, ValueError, TypeError) as err:
+            raise FoscamConnectionError(f"Cannot read size of {remote_path}: {err}") from err
+        raise FoscamConnectionError(f"Recording not found on camera: {remote_path}")
+
+    async def file_size(self, remote_path: str) -> int:
+        """Read a fresh byte count for a single remote file."""
+        async with self._lock:
+            return await asyncio.to_thread(self._file_size_sync, remote_path)
+
     async def __aenter__(self) -> Self:
         await self.connect()
         return self

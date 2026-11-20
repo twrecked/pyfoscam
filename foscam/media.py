@@ -13,12 +13,28 @@ from typing import TYPE_CHECKING, Any
 
 from .exceptions import FoscamConnectionError, FoscamMediaError
 from .ftp import parse_timestamp_from_filename
-from .transcode import convert_avi_to_mp4, get_video_duration, is_ffmpeg_available
+from .transcode import (
+    convert_avi_to_mp4,
+    get_video_duration,
+    has_video_packets,
+    is_ffmpeg_available,
+    is_ffprobe_available,
+)
 
 if TYPE_CHECKING:
     from .client import FoscamCamera
 
 LOGGER = logging.getLogger(__package__)
+RECORDING_SETTLE_SECONDS = 10
+# Old versions accepted header-only MP4s (observed at 262 bytes).
+MIN_CACHED_MP4_BYTES = 512
+
+
+def _file_size(path: Path) -> int:
+    try:
+        return path.stat().st_size if path.is_file() else 0
+    except FileNotFoundError:
+        return 0
 
 
 def prune_local_recordings(
@@ -142,15 +158,14 @@ class FoscamRecording:
 
     @property
     def is_downloaded(self) -> bool:
-        """Check if local MP4 file exists and has size."""
-        p = self.local_video_path
-        return p.is_file() and p.stat().st_size > 0
+        """Check for a cached MP4, ignoring legacy header-only files."""
+        return _file_size(self.local_video_path) >= MIN_CACHED_MP4_BYTES
 
     @property
     def is_raw_downloaded(self) -> bool:
         """Check if local AVI file exists and has size."""
-        p = self.local_raw_path
-        return p.is_file() and p.stat().st_size > 0
+        size = _file_size(self.local_raw_path)
+        return size > 0 and (self.remote_size <= 0 or size == self.remote_size)
 
     @property
     def is_thumbnail_downloaded(self) -> bool:
@@ -212,7 +227,7 @@ class FoscamMediaLibrary:
         self.days_cutoff = days_cutoff
 
         self._recordings: list[FoscamRecording] = []
-        self._bad_recordings: set[str] = set()
+        self._download_lock = asyncio.Lock()
         self._last_refresh: datetime | None = None
 
     @property
@@ -378,9 +393,6 @@ class FoscamMediaLibrary:
         for records in cached_days.values():
             for r in records:
                 clip_id = r["clip_id"]
-                if clip_id in self._bad_recordings:
-                    continue
-
                 raw_dt = r["date"]
                 dt = (
                     datetime.fromisoformat(raw_dt)
@@ -424,59 +436,69 @@ class FoscamMediaLibrary:
         else:
             rec = recording_or_clip_id
 
-        self.storage_dir.mkdir(parents=True, exist_ok=True)
-
+        convert = remux_to_mp4 and is_ffmpeg_available()
         target_video = (
             Path(dest_video)
             if dest_video
-            else (rec.local_video_path if remux_to_mp4 else rec.local_raw_path)
+            else (rec.local_video_path if convert else rec.local_raw_path)
         )
         target_thumbnail = (
             Path(dest_thumbnail) if dest_thumbnail else rec.local_thumbnail_path
         )
 
-        # If already downloaded and not forcing
-        if not force and target_video.is_file() and target_video.stat().st_size > 0:
-            return target_video, (target_thumbnail if target_thumbnail.is_file() else None)
-
-        await self.camera.start_ftp_server()
-        ftp_client = self.camera.get_ftp_client()
-
-        async with ftp_client:
-            # 1. Download thumbnail if available
-            if rec.remote_thumbnail:
-                try:
-                    await ftp_client.download_file(rec.remote_thumbnail, str(target_thumbnail))
-                except (FoscamMediaError, FoscamConnectionError, OSError) as err:
-                    LOGGER.debug("Thumbnail download failed for %s: %s", rec.clip_id, err)
-
-            # 2. Download video
-            if not remux_to_mp4 or not is_ffmpeg_available():
-                await ftp_client.download_file(rec.remote_video, str(target_video))
-                rec._duration = await get_video_duration(target_video)
+        async with self._download_lock:
+            size = await asyncio.to_thread(_file_size, target_video)
+            cached = (
+                size >= MIN_CACHED_MP4_BYTES if convert else size > 0 and size == rec.remote_size
+            )
+            if cached and not force:
                 return target_video, (target_thumbnail if target_thumbnail.is_file() else None)
 
-            # Download AVI to temporary file and remux
-            with tempfile.NamedTemporaryFile(suffix=".avi", delete=False) as tmp_avi:
-                tmp_avi_path = tmp_avi.name
+            if convert and not is_ffprobe_available():
+                raise FoscamMediaError("ffprobe is required to validate converted recordings")
 
-            try:
-                await ftp_client.download_file(rec.remote_video, tmp_avi_path)
-                await convert_avi_to_mp4(tmp_avi_path, target_video)
-                rec._duration = await get_video_duration(target_video)
-            except Exception as err:
-                self._bad_recordings.add(rec.clip_id)
-                if os.path.exists(target_video):
-                    try:
-                        os.unlink(target_video)
-                    except OSError:
-                        pass
-                raise FoscamMediaError(f"Failed processing recording {rec.clip_id}: {err}") from err
-            finally:
-                if os.path.exists(tmp_avi_path):
-                    try:
-                        os.unlink(tmp_avi_path)
-                    except OSError:
-                        pass
+            await asyncio.to_thread(target_video.parent.mkdir, parents=True, exist_ok=True)
+            # Stage on the destination filesystem so publication is atomic.
+            with tempfile.TemporaryDirectory(prefix=".foscam-", dir=target_video.parent) as staging:
+                raw_video = Path(staging) / "recording.avi"
+                await self.camera.start_ftp_server()
+                async with self.camera.get_ftp_client() as ftp_client:
+                    first_size = await ftp_client.file_size(rec.remote_video)
+                    if first_size <= 0:
+                        raise FoscamMediaError(f"Recording {rec.clip_id} is empty; retry later")
+                    await asyncio.sleep(RECORDING_SETTLE_SECONDS)
+                    expected_size = await ftp_client.file_size(rec.remote_video)
+                    if expected_size != first_size:
+                        raise FoscamMediaError(f"Recording {rec.clip_id} is still growing; retry later")
+
+                    await ftp_client.download_file(rec.remote_video, str(raw_video))
+                    received_size = await asyncio.to_thread(_file_size, raw_video)
+                    final_size = await ftp_client.file_size(rec.remote_video)
+                    if received_size != expected_size or final_size != expected_size:
+                        raise FoscamMediaError(
+                            f"Recording {rec.clip_id} changed or did not transfer completely "
+                            f"(expected {expected_size}, received {received_size}, "
+                            f"camera reports {final_size} bytes); retry later"
+                        )
+
+                    if rec.remote_thumbnail and not target_thumbnail.is_file():
+                        try:
+                            await ftp_client.download_file(rec.remote_thumbnail, str(target_thumbnail))
+                        except (FoscamMediaError, FoscamConnectionError, OSError) as err:
+                            LOGGER.debug("Thumbnail download failed for %s: %s", rec.clip_id, err)
+
+                result = raw_video
+                if convert:
+                    result = Path(staging) / "recording.mp4"
+                    await convert_avi_to_mp4(raw_video, result)
+                    if (
+                        await asyncio.to_thread(_file_size, result) < MIN_CACHED_MP4_BYTES
+                        or not await has_video_packets(result)
+                    ):
+                        raise FoscamMediaError(f"Converted recording {rec.clip_id} contains no usable video")
+
+                rec._duration = await get_video_duration(result)
+                await asyncio.to_thread(result.replace, target_video)
+                rec.remote_size = expected_size
 
         return target_video, (target_thumbnail if target_thumbnail.is_file() else None)

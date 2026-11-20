@@ -6,7 +6,7 @@ A Python library and CLI for managing Foscam IP cameras, accessing camera state,
 - **Device state & telemetry**: Query motion, sound, IO alarm states, and recording status.
 - **PTZ & controls**: Pan/tilt/zoom, preset navigation, and live snapshot capture.
 - **Media management**: Discovers recordings (`.avi`) and snapshots (`.jpg`) stored on the camera's local storage via its built-in FTP server.
-- **Remuxing & transcoding**: Fast stream-copy remuxing from `.avi` to `.mp4` using `ffmpeg`.
+- **Remuxing & transcoding**: Fast stream-copy remuxing from `.avi` to `.mp4` using `ffmpeg`, with `ffprobe` to verify that the output contains video before caching it.
 - **CLI tool (`pyfoscam`)**: Command-line tool to manage camera credentials, check status, trigger PTZ, capture snapshots, and browse/download video recordings.
 
 ## CLI Usage

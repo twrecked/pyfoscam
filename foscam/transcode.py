@@ -21,6 +21,27 @@ def is_ffprobe_available() -> bool:
     return shutil.which("ffprobe") is not None
 
 
+async def has_video_packets(video_path: Path) -> bool:
+    """Check that the file contains a video packet, not just container headers."""
+    proc = await asyncio.create_subprocess_exec(
+        "ffprobe", "-v", "error", "-select_streams", "V:0",
+        "-read_intervals", "%+5", "-show_entries", "packet=size",
+        "-of", "csv=p=0", str(video_path),
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    try:
+        stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=5)
+    except (TimeoutError, asyncio.CancelledError):
+        if proc.returncode is None:
+            proc.kill()
+        await proc.communicate()
+        raise
+    return proc.returncode == 0 and any(
+        size.isdigit() and int(size) > 0 for size in stdout.splitlines()
+    )
+
+
 async def convert_avi_to_mp4(
     source_avi: Path | str,
     dest_mp4: Path | str,

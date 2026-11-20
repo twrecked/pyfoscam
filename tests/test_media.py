@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from foscam.client import FoscamCamera
+from foscam.exceptions import FoscamMediaError
 from foscam.media import FoscamMediaLibrary, FoscamRecording
 
 
@@ -28,7 +29,9 @@ def test_recording_properties(tmp_path: Path):
     assert not rec.is_thumbnail_downloaded
 
     # Create dummy local files
-    rec.local_video_path.write_bytes(b"dummy mp4")
+    rec.local_video_path.write_bytes(b"\0" * 262)
+    assert not rec.is_downloaded
+    rec.local_video_path.write_bytes(b"\0" * 1024)
     rec.local_thumbnail_path.write_bytes(b"dummy jpg")
 
     assert rec.is_downloaded
@@ -38,6 +41,69 @@ def test_recording_properties(tmp_path: Path):
     assert d["clip_id"] == "MD20210522_120400"
     assert d["is_downloaded"] is True
     assert d["remote_size"] == 1048576
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("sizes", "received", "has_video", "error"),
+    [
+        ([0], 0, True, "empty"),
+        ([2048, 4096], 0, True, "still growing"),
+        ([4096, 4096, 4096], 2048, True, "did not transfer completely"),
+        ([4096, 4096, 8192], 4096, True, "did not transfer completely"),
+        ([4096, 4096, 4096], 4096, False, "contains no usable video"),
+        ([4096, 4096, 4096], 4096, True, None),
+    ],
+)
+async def test_download_waits_and_only_publishes_verified_video(
+    tmp_path: Path, sizes: list[int], received: int, has_video: bool, error: str | None
+):
+    cam = FoscamCamera("192.168.1.50", "admin", "secret", storage_dir=tmp_path)
+    lib = FoscamMediaLibrary(cam, storage_dir=tmp_path)
+    rec = FoscamRecording(
+        "motion", datetime.now(), "/camera/motion.avi", None, 2048, storage_dir=tmp_path
+    )
+    legacy_data = bytes(262)
+    rec.local_video_path.write_bytes(legacy_data)
+
+    async def download(_remote: str, local: str) -> None:
+        Path(local).write_bytes(bytes(received))
+
+    async def convert(_raw: Path, output: Path) -> None:
+        assert rec.local_video_path.read_bytes() == legacy_data
+        output.write_bytes(bytes(1024))
+
+    ftp = AsyncMock()
+    ftp.__aenter__.return_value = ftp
+    ftp.file_size.side_effect = sizes
+    ftp.download_file.side_effect = download
+    with (
+        patch.object(cam, "start_ftp_server", new_callable=AsyncMock),
+        patch.object(cam, "get_ftp_client", return_value=ftp),
+        patch("foscam.media.asyncio.sleep", new_callable=AsyncMock) as sleep,
+        patch("foscam.media.is_ffmpeg_available", return_value=True),
+        patch("foscam.media.is_ffprobe_available", return_value=True),
+        patch("foscam.media.convert_avi_to_mp4", side_effect=convert) as remux,
+        patch("foscam.media.has_video_packets", return_value=has_video),
+        patch("foscam.media.get_video_duration", return_value=30),
+    ):
+        if error is None:
+            assert await lib.download_recording(rec) == (rec.local_video_path, None)
+            assert rec.is_downloaded
+            assert rec.duration == 30
+            assert rec.remote_size == 4096
+        else:
+            with pytest.raises(FoscamMediaError, match=error):
+                await lib.download_recording(rec)
+            assert rec.local_video_path.read_bytes() == legacy_data
+            assert not rec.is_downloaded
+        if sizes[0]:
+            sleep.assert_awaited_once_with(10)
+        if len(sizes) < 3:
+            ftp.download_file.assert_not_awaited()
+        if len(sizes) < 3 or received != sizes[1] or sizes[2] != sizes[1]:
+            remux.assert_not_awaited()
+    assert not list(tmp_path.glob(".foscam-*"))
 
 
 @pytest.mark.asyncio
