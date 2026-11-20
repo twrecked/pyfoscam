@@ -1,6 +1,9 @@
 Unreleased
+
+0.1.0-alpha.4
   - Wait for new recordings to stop growing and verify FTP transfer size.
   - Validate converted video before caching it and retry legacy header-only copies.
+  - Create and clean up temporary recording directories off the event loop.
 
 0.1.0-alpha.3
   - Added native async optical zoom and manual focus coroutines to FoscamCamera:

@@ -49,7 +49,7 @@ from .transcode import (
     is_ffmpeg_available as is_ffmpeg_available,
 )
 
-__version__ = "0.1.0-alpha.3"
+__version__ = "0.1.0-alpha.4"
 __all__ = [
     "FoscamAuthError",
     "FoscamCamera",
